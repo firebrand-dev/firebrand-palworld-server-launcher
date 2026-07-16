@@ -1,0 +1,12 @@
+PALWORLD SERVER MANAGER v8.1 — FIX CHAT
+
+Corrige el ParserError causado por variables seguidas de dos puntos, por ejemplo $Author: $Message.
+Ahora se usa ${Author}: $Message.
+
+Instalación:
+1. Cerrá el launcher.
+2. Copiá launcher\ y los BAT sobre la instalación actual.
+3. Aceptá reemplazar.
+4. Abrí nuevamente el launcher.
+
+No modifica server\Pal\Saved.

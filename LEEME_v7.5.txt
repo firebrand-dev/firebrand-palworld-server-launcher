@@ -1,0 +1,37 @@
+PALWORLD SERVER MANAGER v7.5
+
+CAMBIOS DE REST API
+- /metrics se consulta cada 15 segundos.
+- /info se consulta una sola vez al abrir o después de actualizar.
+- Ya no aparecen dos mensajes REST cada 5 segundos.
+- La consola debería mostrar una sola línea de metrics cada 15 segundos.
+
+RENDIMIENTO
+Se agregó:
+"Usar parámetros de rendimiento antiguos"
+
+DESMARCADO, recomendado para probar primero en Palworld 1.0+:
+PalServer.exe -publiclobby
+
+MARCADO:
+PalServer.exe -useperfthreads -NoAsyncLoadingThread
+-UseMultithreadForDS -NumberOfWorkerThreadsServer=X -publiclobby
+
+La documentación oficial actual indica que en v1.0 y posteriores dejar esos
+parámetros sin configurar puede mejorar el rendimiento.
+
+PRUEBA RECOMENDADA
+1. Desmarcar parámetros antiguos.
+2. Guardar.
+3. Reiniciar el servidor.
+4. Esperar 5 minutos sin jugadores.
+5. Anotar FPS.
+6. Probar con los mismos jugadores y comparar.
+
+INSTALACIÓN
+1. Cerrá el launcher.
+2. Copiá launcher\ y los BAT sobre la instalación actual.
+3. Aceptá reemplazar.
+4. Abrí v7.5.
+
+No modifica server\Pal\Saved.

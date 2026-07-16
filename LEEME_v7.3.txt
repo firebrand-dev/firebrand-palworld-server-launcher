@@ -1,0 +1,25 @@
+PALWORLD SERVER MANAGER v7.3 — VENTANAS VISIBLES
+
+CORRECCIÓN
+La v7.2 abría PowerShell con -WindowStyle Hidden. En algunas PCs eso
+también impedía que apareciera la ventana gráfica del launcher.
+
+Ahora:
+- El launcher se abre normalmente y queda visible.
+- La consola de PowerShell queda detrás del launcher mientras esté abierto.
+- El CMD/consola de PalServer vuelve a mostrarse.
+- Al presionar DETENER, PalServer y su consola deben cerrarse juntos.
+- Si el launcher falla antes de mostrar la interfaz, el error queda visible.
+
+INSTALACIÓN
+1. Revisá el Administrador de tareas y cerrá procesos PalServer viejos si existen.
+2. Copiá launcher\, ABRIR_LAUNCHER.bat y
+   ABRIR_LAUNCHER_DIAGNOSTICO.bat sobre la instalación actual.
+3. Aceptá reemplazar.
+4. Ejecutá ABRIR_LAUNCHER.bat.
+
+SI NO APARECE
+Ejecutá ABRIR_LAUNCHER_DIAGNOSTICO.bat. Esa ventana no se cierra y
+deja visible cualquier error exacto de PowerShell.
+
+No modifica server\Pal\Saved ni el mundo.

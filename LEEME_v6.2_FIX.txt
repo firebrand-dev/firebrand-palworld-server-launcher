@@ -1,0 +1,17 @@
+PALWORLD SERVER MANAGER v6.2 FIX
+
+CORRECCIÓN PRINCIPAL
+- El inicio ya no utiliza RedirectStandardOutput, rutas de log ni archivo PID.
+- El launcher detecta directamente PalServer por el nombre del proceso.
+- Corrige definitivamente el error: parámetro Path es nulo.
+- PalServer continúa iniciándose oculto, sin dejar una consola CMD abierta.
+- DETENER conserva guardado por REST API y taskkill /T /F como respaldo.
+
+INSTALACIÓN
+1. Cerrá el launcher.
+2. En el Administrador de tareas, finalizá PalServer si quedó abierto por la prueba anterior.
+3. Copiá launcher\ y ABRIR_LAUNCHER.bat encima de tu instalación actual.
+4. Aceptá reemplazar.
+5. Abrí el launcher e iniciá el servidor.
+
+No modifica server\Pal\Saved.

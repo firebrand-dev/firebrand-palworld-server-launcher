@@ -1,0 +1,24 @@
+PALWORLD SERVER MANAGER v8.2 — VALIDADO
+
+Esta versión se reconstruyó desde la v8 original.
+
+CORRECCIÓN
+- Se corrigió solamente:
+  "$Author: $Message"
+  por:
+  "${Author}: $Message"
+
+- No se aplicaron reemplazos globales.
+- Las variables $script: y $env: quedaron intactas.
+
+VALIDACIÓN
+Revisá VALIDACION_v8.2.txt dentro del ZIP.
+
+INSTALACIÓN
+1. Cerrá el launcher.
+2. Copiá launcher\ y los dos BAT sobre la instalación actual.
+3. Aceptá reemplazar.
+4. Abrí ABRIR_LAUNCHER_DIAGNOSTICO.bat la primera vez.
+5. Después podés usar ABRIR_LAUNCHER.bat.
+
+No modifica server\Pal\Saved.

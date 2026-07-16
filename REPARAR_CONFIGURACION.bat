@@ -1,0 +1,4 @@
+@echo off
+cd /d "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$cfg=Join-Path '%~dp0server' 'Pal\Saved\Config\WindowsServer\PalWorldSettings.ini'; $def=Join-Path '%~dp0server' 'DefaultPalWorldSettings.ini'; if(Test-Path $cfg){Copy-Item $cfg ($cfg+'.broken_'+(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')) -Force}; if(!(Test-Path $def)){Write-Host 'No se encontro DefaultPalWorldSettings.ini' -ForegroundColor Red; exit 1}; Copy-Item $def $cfg -Force; $t=[IO.File]::ReadAllText($cfg); if($t -notmatch 'AllowConnectPlatform\s*='){ $i=$t.LastIndexOf(')'); if($i -ge 0){$t=$t.Insert($i,',AllowConnectPlatform=Xbox')}} else {$t=[regex]::Replace($t,'AllowConnectPlatform\s*=\s*[^,\)]+','AllowConnectPlatform=Xbox',1)}; [IO.File]::WriteAllText($cfg,$t,[Text.UTF8Encoding]::new($false)); Write-Host 'Configuracion reparada. Ahora abre el launcher, cambia el nombre y guarda.' -ForegroundColor Green"
+pause

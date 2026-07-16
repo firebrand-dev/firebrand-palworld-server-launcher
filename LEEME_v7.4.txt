@@ -1,0 +1,27 @@
+PALWORLD SERVER MANAGER v7.4 — REST JOB
+
+CORRECCIÓN
+Soluciona:
+"No hay ningún espacio de ejecución disponible para ejecutar scripts
+en este subproceso."
+
+CAUSA
+BackgroundWorker ejecutaba Invoke-RestMethod en un hilo sin runspace
+de PowerShell.
+
+SOLUCIÓN
+- Reemplaza BackgroundWorker por Start-Job.
+- El job tiene su propio entorno PowerShell.
+- La interfaz recoge el resultado sin bloquearse.
+- Mantiene FPS, jugadores, frame time y versión del servidor.
+- Mantiene el launcher responsivo.
+
+INSTALACIÓN
+1. Cerrá el launcher anterior.
+2. Podés dejar PalServer funcionando.
+3. Copiá launcher\ y los BAT sobre la instalación actual.
+4. Aceptá reemplazar.
+5. Abrí el launcher v7.4.
+6. Esperá 5-10 segundos para que aparezcan las métricas.
+
+No modifica server\Pal\Saved.

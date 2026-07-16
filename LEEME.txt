@@ -1,0 +1,10 @@
+ACTUALIZACION v5 - PUBLICLOBBY/XBOX
+
+1. Detene el servidor y cerra el launcher.
+2. Copia la carpeta "launcher" sobre la carpeta actual de Palworld Server Manager.
+3. Acepta reemplazar PalworldLauncher.ps1.
+4. Abri ABRIR_LAUNCHER.bat.
+5. Deja marcada "Servidor comunitario / Xbox (-publiclobby)".
+6. Guarda configuracion y reinicia.
+
+No borra ni modifica tu mundo.

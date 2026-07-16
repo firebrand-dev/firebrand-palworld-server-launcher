@@ -1,0 +1,43 @@
+PALWORLD SERVER MANAGER v7
+
+CORRECCIONES
+- Restaura correctamente la función Start-Server.
+- Restaura correctamente la función Backup-World.
+- Elimina el error: Start-Server no se reconoce.
+- El servidor se inicia sin una ventana CMD persistente.
+- DETENER usa save + shutdown y, si falla, taskkill /T /F.
+
+REINICIO AUTOMÁTICO
+Modos disponibles:
+1. Desactivado.
+2. Cada ciertas horas.
+3. Hora fija diaria, por ejemplo 06:00.
+
+AVISOS A LOS JUGADORES
+El launcher anuncia dentro del juego:
+- 25 minutos.
+- 15 minutos.
+- 10 minutos.
+- Después cada minuto: 9, 8, 7, 6, 5, 4, 3, 2 y 1.
+- Mensaje final al comenzar el reinicio.
+
+CANCELAR
+El botón CANCELAR PRÓXIMO REINICIO:
+- Cancela el reinicio pendiente.
+- Avisa dentro del juego.
+- Si era diario, lo pasa al día siguiente.
+- Si era por intervalo, comienza un nuevo intervalo desde el momento de cancelación.
+
+INSTALACIÓN
+1. Cerrá el launcher anterior.
+2. Si PalServer quedó abierto, cerralo desde el Administrador de tareas.
+3. Copiá launcher\ y ABRIR_LAUNCHER.bat sobre la instalación actual.
+4. Aceptá reemplazar.
+5. Abrí el launcher.
+6. Confirmá la clave Admin/API y guardá configuración.
+7. Reiniciá el servidor una vez para habilitar RESTAPIEnabled=True.
+
+IMPORTANTE
+- No modifica server\Pal\Saved.
+- No abre el puerto REST 8212 al exterior.
+- Para avisos, FPS y apagado seguro, la contraseña Admin/API debe coincidir con AdminPassword.

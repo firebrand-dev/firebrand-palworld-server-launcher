@@ -1,0 +1,23 @@
+PALWORLD SERVER MANAGER v7.2 — DETECCIÓN Y REST API
+
+CORRECCIONES
+- Detecta el proceso real de PalServer por consumo de RAM.
+- Evita mostrar 0,01 GB tomando el proceso lanzador equivocado.
+- Guarda RESTAPIEnabled=True, RESTAPIPort y AdminPassword antes de iniciar.
+- Consulta /metrics y /info en segundo plano.
+- Muestra versión real mediante /info cuando la API responde.
+- Fallback de versión mediante ejecutable o Steam Build ID.
+- Muestra el error real: 401, puerto sin conexión, 404, etc.
+- Agrega botón PROBAR REST API.
+
+PASOS
+1. Cerrá el launcher anterior.
+2. Copiá launcher\ y ABRIR_LAUNCHER.bat sobre la instalación.
+3. Abrí v7.2.
+4. Verificá la Clave admin/API.
+5. Presioná GUARDAR CONFIGURACIÓN.
+6. Reiniciá el servidor.
+7. Esperá 20-30 segundos y presioná PROBAR REST API.
+
+No modifica el mundo ni los personajes.
+No abras el puerto REST 8212 en el router.

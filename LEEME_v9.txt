@@ -1,0 +1,52 @@
+PALWORLD SERVER MANAGER v9 — INTEGRAL
+
+PESTAÑAS
+1. Panel
+2. Chat
+3. Jugadores
+4. Backups
+5. Automatizaciones
+
+NOVEDADES
+- Reloj en vivo.
+- Mensajes automáticos aleatorios cada X minutos.
+- Consejos locales de Palworld.
+- Mensajes personalizados editables.
+- Hora opcional dentro de cada anuncio.
+- Generación manual de lotes de consejos con Gemini.
+- La clave de Gemini se protege mediante Windows para el usuario actual.
+- Reinicio por FPS bajos.
+- Opción de esperar hasta que no haya jugadores.
+- Kick, ban y copia de User ID.
+- Restauración segura de backups con doble confirmación.
+- Retención automática de backups.
+- Registro de actividad.
+
+MENSAJES
+Archivos editables:
+- palworld_tips.txt
+- custom_messages.txt
+
+GEMINI
+1. Creá una API key en Google AI Studio.
+2. Ingresala en Automatizaciones.
+3. Dejá el modelo predeterminado o cambialo.
+4. Presioná GENERAR 40 CONSEJOS.
+La IA no se consulta automáticamente y no es necesaria para el funcionamiento normal.
+
+INSTALACIÓN
+1. Detené el servidor.
+2. Cerrá el launcher anterior.
+3. Copiá launcher\ y ambos BAT sobre la instalación actual.
+4. Aceptá reemplazar.
+5. Abrí ABRIR_LAUNCHER_DIAGNOSTICO.bat la primera vez.
+6. Revisá la pestaña Automatizaciones y guardá sus opciones.
+7. Iniciá el servidor desde v9.
+
+SEGURIDAD
+- No abras el puerto REST 8212 a Internet.
+- El mundo está en server\Pal\Saved.
+- La restauración de backups solo funciona con el servidor detenido.
+
+VALIDACIÓN
+Consultá VALIDACION_v9.txt.

@@ -1,0 +1,28 @@
+PALWORLD SERVER MANAGER v6 — ACTUALIZACIÓN
+
+CÓMO INSTALAR
+1. Detené el servidor.
+2. Cerrá el launcher anterior.
+3. Copiá la carpeta "launcher" y "ABRIR_LAUNCHER.bat" encima de tu instalación actual.
+4. Aceptá reemplazar los archivos.
+5. Abrí ABRIR_LAUNCHER.bat.
+6. Escribí o confirmá la contraseña de administrador/API.
+7. Guardá la configuración y reiniciá el servidor.
+
+MEJORAS
+- Muestra FPS reales del servidor.
+- Muestra jugadores conectados, frame time, RAM, CPU y tiempo encendido.
+- Clasifica el rendimiento: excelente, bueno, aceptable o bajo.
+- Habilita RESTAPIEnabled=True y RESTAPIPort=8212.
+- DETENER intenta primero /save y /shutdown.
+- Si el cierre normal falla, usa taskkill /T /F para cerrar todo el árbol.
+- PalServer se inicia sin una consola CMD visible.
+- El BAT del launcher se cierra inmediatamente después de abrir la interfaz.
+- Backup antes de reiniciar.
+- Reinicio automático opcional por horas.
+- Mantiene -publiclobby y CrossplayPlatforms=(Steam,Xbox,PS5,Mac).
+- Repara PalWorldSettings.ini vacío o inválido.
+
+IMPORTANTE
+No abras ni redirijas el puerto REST 8212 en el router. Solo se usa localmente.
+El puerto público del juego sigue siendo normalmente UDP 8211.

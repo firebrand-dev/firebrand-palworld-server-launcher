@@ -1,0 +1,41 @@
+# ============================================================
+# Firebrand Palworld Server Launcher - .gitignore
+# Regla de oro: NUNCA versionar datos del usuario, mundos,
+# backups, binarios descargados ni secretos.
+# ============================================================
+
+# --- Servidor Palworld y SteamCMD (descargados, gigantes) ---
+server/
+steamcmd/
+
+# --- Datos del usuario en runtime ---
+backups/
+logs/
+*.log
+
+# --- Configuracion personal del launcher (se genera sola) ---
+launcher-settings.json
+automation-settings.json
+palworld_tips.txt
+custom_messages.txt
+portable.flag
+
+# --- Secretos (JAMAS al repo) ---
+gemini-key.dat
+*.key
+*.token
+config_local.*
+
+# --- Salidas de build / empaquetado ---
+build/
+dist/
+installer/Output/
+*.exe
+!docs/**/*.exe.png
+
+# --- Temporales y basura de Windows ---
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+~$*

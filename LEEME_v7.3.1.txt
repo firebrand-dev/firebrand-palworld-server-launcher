@@ -1,0 +1,15 @@
+PALWORLD SERVER MANAGER v7.3.1
+
+Corrección:
+- Soluciona el ParserError de PowerShell:
+  InvalidVariableReferenceWithDrive
+- Corrige la interpolación de:
+  API respondió HTTP ${statusCode}: mensaje
+
+Instalación:
+1. Cerrá el launcher.
+2. Copiá launcher\ y ABRIR_LAUNCHER.bat sobre tu instalación.
+3. Aceptá reemplazar.
+4. Abrí nuevamente el launcher.
+
+No modifica server\Pal\Saved.

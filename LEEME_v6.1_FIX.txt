@@ -1,0 +1,13 @@
+PALWORLD SERVER MANAGER v6.1 FIX
+
+Corrige el error:
+"No se puede enlazar el argumento al parámetro Path porque es nulo."
+
+Instalación:
+1. Cerrá el launcher.
+2. Si PalServer quedó abierto, cerralo una sola vez desde el Administrador de tareas.
+3. Copiá launcher\ y ABRIR_LAUNCHER.bat encima de tu instalación actual.
+4. Aceptá reemplazar archivos.
+5. Abrí nuevamente el launcher.
+
+No modifica server\Pal\Saved ni el mundo.

@@ -1,0 +1,7 @@
+PALWORLD SERVER MANAGER v8
+
+Pestañas: Panel, Chat, Jugadores y Backups.
+El chat captura líneas [CHAT] <Jugador> mensaje desde logs\server_current.log.
+Los mensajes del servidor se envían por /announce.
+Para capturar chat, iniciá PalServer desde este launcher.
+No modifica server\Pal\Saved.

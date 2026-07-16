@@ -1,0 +1,22 @@
+PALWORLD SERVER MANAGER v8.2 — VALIDACIÓN ESTÁTICA
+
+Resultado: OK
+Líneas revisadas: 1513
+Tamaño PS1: 53797 bytes
+
+Errores:
+- Ninguno
+
+Pruebas:
+- Variables de ámbito intactas.
+- Interpolaciones con dos puntos.
+- Funciones esenciales presentes.
+- Balance de paréntesis, corchetes, llaves y comillas.
+- Pestañas y botones principales.
+- REST API, chat, jugadores, logs y backups.
+- Regresiones conocidas de versiones anteriores.
+- Archivos BAT y PS1.
+
+Nota:
+No hay PowerShell para Windows disponible dentro del entorno Linux de generación;
+por eso la validación fue estructural y estática, además de la integridad del ZIP.

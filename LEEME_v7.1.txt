@@ -1,0 +1,22 @@
+PALWORLD SERVER MANAGER v7.1 — UI RESPONSIVA
+
+PROBLEMA CORREGIDO
+La versión v7 consultaba la REST API en el mismo hilo de la interfaz.
+Si la API tardaba o no respondía, la ventana quedaba bloqueada y la X
+parecía marcarse y desmarcarse sin cerrar.
+
+CAMBIO
+- FPS, jugadores y frame time se consultan en segundo plano.
+- La interfaz no espera a la REST API.
+- El contador de reinicio continúa funcionando cada segundo.
+- Las métricas se actualizan aproximadamente cada 5 segundos.
+- Si la API todavía no responde, el launcher permanece utilizable.
+
+INSTALACIÓN
+1. Cerrá el launcher anterior.
+2. No hace falta detener el servidor si ya está funcionando.
+3. Copiá la carpeta launcher y ABRIR_LAUNCHER.bat sobre la instalación.
+4. Aceptá reemplazar.
+5. Abrí el launcher v7.1.
+
+No modifica server\Pal\Saved.
