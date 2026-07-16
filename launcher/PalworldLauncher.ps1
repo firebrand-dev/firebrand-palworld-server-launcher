@@ -1,27 +1,110 @@
 ﻿Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $PSScriptRoot
-$ServerDir = Join-Path $Root "server"
+# Resolucion de rutas: InstallRoot (codigo) / DataRoot (datos del usuario) /
+# ServerRoot (server + mundos + backups). Ver launcher\lib\Paths.ps1.
+. (Join-Path $PSScriptRoot "lib\Paths.ps1")
+
+$LauncherPaths = Get-LauncherPaths -ScriptDir $PSScriptRoot
+
+# Migracion unica desde el layout viejo (config junto al launcher).
+# Si el usuario ya dijo que No, queda registrado y no se vuelve a preguntar.
+$MigrationDeclinedFlag = Join-Path $LauncherPaths.DataRoot "migration-declined.flag"
+if (-not $LauncherPaths.IsPortable -and -not (Test-Path -LiteralPath $MigrationDeclinedFlag)) {
+    $pendingMigration = @(Get-OldLayoutMigrationFiles -InstallRoot $LauncherPaths.InstallRoot -DataRoot $LauncherPaths.DataRoot)
+    if ($pendingMigration.Count -gt 0) {
+        $migrationAnswer = [System.Windows.Forms.MessageBox]::Show(
+            "Se encontró configuración de una versión anterior junto al launcher.`n`n" +
+            "¿Copiarla a la carpeta de datos del usuario?`n" + $LauncherPaths.DataRoot + "`n`n" +
+            "Los archivos originales no se borran. Los mundos y backups no se tocan.",
+            "Migrar configuración",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+        if ($migrationAnswer -eq [System.Windows.Forms.DialogResult]::Yes) {
+            try {
+                Invoke-LauncherDataMigration -InstallRoot $LauncherPaths.InstallRoot -DataRoot $LauncherPaths.DataRoot | Out-Null
+                $LauncherPaths = Get-LauncherPaths -ScriptDir $PSScriptRoot
+            }
+            catch {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "No se pudo migrar la configuración:`n" + $_.Exception.Message,
+                    "Migrar configuración",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                ) | Out-Null
+            }
+        }
+        else {
+            try {
+                New-Item -ItemType Directory -Force -Path $LauncherPaths.DataRoot | Out-Null
+                Set-Content -LiteralPath $MigrationDeclinedFlag `
+                    -Value "El usuario decidió no migrar la configuración vieja. Borrá este archivo para que se vuelva a ofrecer." `
+                    -Encoding UTF8
+            }
+            catch {}
+        }
+    }
+}
+
+# Settings danados: respaldar y avisar en vez de relocalizar el server en silencio.
+if ($LauncherPaths.SettingsCorrupt) {
+    $corruptBackup = $null
+    try {
+        $corruptBackup = $LauncherPaths.SettingsFile + ".corrupt_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".bak"
+        Copy-Item -LiteralPath $LauncherPaths.SettingsFile -Destination $corruptBackup -Force
+    }
+    catch { $corruptBackup = $null }
+
+    $corruptNote = if ($corruptBackup) { "`n`nSe guardó una copia en:`n$corruptBackup" } else { "" }
+    [System.Windows.Forms.MessageBox]::Show(
+        "El archivo de configuración del launcher (launcher-settings.json) está dañado y no se pudo leer.`n`n" +
+        "Se usarán valores predeterminados, incluida la ubicación del servidor: revisala antes de guardar." + $corruptNote,
+        "Configuración dañada",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    ) | Out-Null
+}
+
+$IsPortable = $LauncherPaths.IsPortable
+$InstallRoot = $LauncherPaths.InstallRoot
+$DataRoot = $LauncherPaths.DataRoot
+$ServerRoot = $LauncherPaths.ServerRoot
+
+$ServerDir = $LauncherPaths.ServerDir
 $ServerExe = Join-Path $ServerDir "PalServer.exe"
-$SteamCmdExe = Join-Path $Root "steamcmd\steamcmd.exe"
+$SteamCmdExe = Join-Path $LauncherPaths.SteamCmdDir "steamcmd.exe"
 $ConfigFile = Join-Path $ServerDir "Pal\Saved\Config\WindowsServer\PalWorldSettings.ini"
 $DefaultConfig = Join-Path $ServerDir "DefaultPalWorldSettings.ini"
 $SaveDir = Join-Path $ServerDir "Pal\Saved"
-$BackupDir = Join-Path $Root "backups"
-$LogsDir = Join-Path $Root "logs"
+$BackupDir = $LauncherPaths.BackupDir
+$LogsDir = $LauncherPaths.LogsDir
 $CurrentServerLog = Join-Path $LogsDir "server_current.log"
 $ChatHistoryFile = Join-Path $LogsDir "chat_history.log"
-$AutomationConfigFile = Join-Path $Root "automation-settings.json"
-$TipsFile = Join-Path $Root "palworld_tips.txt"
-$CustomMessagesFile = Join-Path $Root "custom_messages.txt"
+$AutomationConfigFile = Join-Path $DataRoot "automation-settings.json"
+$TipsFile = Join-Path $DataRoot "palworld_tips.txt"
+$CustomMessagesFile = Join-Path $DataRoot "custom_messages.txt"
 $ActivityLogFile = Join-Path $LogsDir "activity.log"
-$GeminiKeyFile = Join-Path $Root "gemini-key.dat"
-$LauncherConfig = Join-Path $Root "launcher-settings.json"
+$GeminiKeyFile = Join-Path $DataRoot "gemini-key.dat"
+$LauncherConfig = $LauncherPaths.SettingsFile
 
-New-Item -ItemType Directory -Force -Path $BackupDir,$LogsDir | Out-Null
+# Los datos del usuario nunca se escriben en la carpeta de instalacion
+# (salvo modo portable, donde DataRoot == InstallRoot a proposito).
+try {
+    New-Item -ItemType Directory -Force -Path $DataRoot,$LogsDir | Out-Null
+}
+catch {
+    [System.Windows.Forms.MessageBox]::Show(
+        "No se pudo crear la carpeta de datos del launcher:`n$DataRoot`n`n" + $_.Exception.Message,
+        "Firebrand Palworld Server Launcher",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+    exit 1
+}
 
 $script:LastCpuTime = $null
 $script:LastCpuAt = $null
@@ -44,6 +127,7 @@ $script:LastMetrics = $null
 $script:LastServerInfo = $null
 $script:LastMetricsError = ""
 $script:LastMetricsAt = $null
+$script:ServerPid = $null
 
 
 function Show-Message(
@@ -59,21 +143,61 @@ function Show-Message(
     ) | Out-Null
 }
 
+# Un proceso es "nuestro" solo si su ejecutable vive dentro de $ServerDir.
+# Asi el launcher jamas toca un PalServer de OTRA instalacion de la misma PC.
+# Si la ruta no se puede leer (proceso elevado / de otro usuario), se asume
+# que NO es nuestro: preferimos no poder gestionarlo antes que matar uno ajeno.
+function Test-OwnServerProcess($Process) {
+    if (-not $Process) { return $false }
+    try {
+        $exePath = $Process.Path
+        if (-not $exePath) { return $false }
+        $prefix = $ServerDir.TrimEnd('\') + '\'
+        return $exePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-ServerProcess {
     try {
+        if ($script:ServerPid) {
+            $byPid = Get-Process -Id $script:ServerPid -ErrorAction SilentlyContinue
+            if ($byPid -and $byPid.ProcessName -like "PalServer*" -and (Test-OwnServerProcess $byPid)) {
+                return $byPid
+            }
+        }
+
         $processes = Get-Process -ErrorAction SilentlyContinue |
             Where-Object {
-                $_.ProcessName -like "PalServer*"
+                $_.ProcessName -like "PalServer*" -and (Test-OwnServerProcess $_)
             } |
             Sort-Object WorkingSet64 -Descending
 
         if ($processes) {
-            return $processes | Select-Object -First 1
+            $found = $processes | Select-Object -First 1
+            $script:ServerPid = $found.Id
+            return $found
         }
     }
     catch {}
 
     return $null
+}
+
+# Cantidad de procesos PalServer visibles por NOMBRE que NO se pueden
+# identificar como de esta instalacion (otra instalacion, o un proceso
+# elevado cuya ruta no podemos leer). Los guards de operaciones sensibles
+# frenan o piden confirmacion ante estos procesos: podria ser NUESTRO
+# server corriendo elevado y tocarlo/ignorarlo corromperia el mundo.
+function Get-UnidentifiedPalServerCount {
+    $all = @(
+        Get-Process `
+            -Name "PalServer","PalServer-Win64-Test","PalServer-Win64-Shipping" `
+            -ErrorAction SilentlyContinue
+    )
+    return @($all | Where-Object { -not (Test-OwnServerProcess $_) }).Count
 }
 
 function Ensure-Ini {
@@ -655,6 +779,15 @@ function Restore-SelectedBackup {
         return
     }
 
+    if ((Get-UnidentifiedPalServerCount) -gt 0) {
+        Show-Message (
+            "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación " +
+            "(¿otra instalación, o un proceso elevado?).`n`n" +
+            "Por seguridad, cerralo antes de restaurar un backup."
+        ) "Restaurar backup" "Warning"
+        return
+    }
+
     if ($listBackups.SelectedItems.Count -eq 0) {
         Show-Message "Seleccioná un backup." "Restaurar backup" "Warning"
         return
@@ -685,10 +818,10 @@ function Restore-SelectedBackup {
     }
 
     try {
-        $safety = Backup-World
+        $safety = Backup-World -SkipRetention $true
         $temp = Join-Path $env:TEMP ("palworld_restore_" + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $temp -Force | Out-Null
-        Expand-Archive -LiteralPath $backupPath -DestinationPath $temp -Force
+        [IO.Compression.ZipFile]::ExtractToDirectory($backupPath, $temp)
 
         Remove-Item -LiteralPath $SaveDir -Recurse -Force -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Path $SaveDir -Force | Out-Null
@@ -828,6 +961,16 @@ function Update-SmartRestart {
     }
 }
 
+# El modo de reinicio del combo, como clave neutra persistible ('disabled'|'interval'|'daily').
+# El indice del combo se corresponde 1 a 1 con $RestartModeKeys (definido en lib\Paths.ps1).
+function Get-RestartModeKey {
+    $index = $cmbRestartMode.SelectedIndex
+    if ($index -ge 0 -and $index -lt $RestartModeKeys.Count) {
+        return $RestartModeKeys[$index]
+    }
+    return "disabled"
+}
+
 function Save-LauncherOptions {
     $timeValue = $timeRestart.Value.ToString("HH:mm")
 
@@ -836,18 +979,25 @@ function Save-LauncherOptions {
         AutoBackup = $chkAutoBackup.Checked
         WorkerThreads = [int]$numWorkers.Value
         UseLegacyPerformanceArgs = $chkLegacyPerfArgs.Checked
-        RestartMode = [string]$cmbRestartMode.SelectedItem
+        RestartMode = (Get-RestartModeKey)
         AutoRestartHours = [int]$numAutoRestart.Value
         DailyRestartTime = $timeValue
+        ServerRoot = $ServerRoot
     } | ConvertTo-Json | Set-Content -LiteralPath $LauncherConfig -Encoding UTF8
 }
 
 function Load-LauncherOptions {
+    # Mientras se cargan valores, los eventos de los controles (p.ej.
+    # SelectedIndexChanged del combo) NO deben disparar Save-LauncherOptions:
+    # guardarian el archivo con estado a medio cargar (bug heredado de v9 que
+    # pisaba DailyRestartTime con el default 06:00 en cada arranque).
+    $script:LoadingOptions = $true
+    try {
     $chkPublicLobby.Checked = $true
     $chkAutoBackup.Checked = $true
     $numWorkers.Value = 4
     $chkLegacyPerfArgs.Checked = $false
-    $cmbRestartMode.SelectedItem = "Desactivado"
+    $cmbRestartMode.SelectedIndex = 0
     $numAutoRestart.Value = 12
     $timeRestart.Value = [datetime]::Today.AddHours(6)
 
@@ -878,11 +1028,13 @@ function Load-LauncherOptions {
             $numAutoRestart.Value = [decimal]$config.AutoRestartHours
         }
 
-        if (
-            $null -ne $config.RestartMode -and
-            $cmbRestartMode.Items.Contains([string]$config.RestartMode)
-        ) {
-            $cmbRestartMode.SelectedItem = [string]$config.RestartMode
+        if ($null -ne $config.RestartMode) {
+            # Acepta claves neutras nuevas y los textos en espanol de settings viejos.
+            $modeKey = ConvertTo-RestartModeKey ([string]$config.RestartMode)
+            $modeIndex = [array]::IndexOf($RestartModeKeys, $modeKey)
+            if ($modeIndex -ge 0) {
+                $cmbRestartMode.SelectedIndex = $modeIndex
+            }
         }
 
         if ($null -ne $config.DailyRestartTime) {
@@ -894,6 +1046,10 @@ function Load-LauncherOptions {
     }
     catch {
         $lblAction.Text = "No se pudo leer launcher-settings.json; se usarán valores predeterminados."
+    }
+    }
+    finally {
+        $script:LoadingOptions = $false
     }
 }
 
@@ -973,7 +1129,12 @@ function Save-Settings {
 
 function Load-Settings {
     try {
-        $text = Get-IniText
+        # No materializar el arbol del server en el primer arranque: recien se
+        # crea el INI cuando el server existe o el usuario guarda/instala algo.
+        $text = ""
+        if ((Test-Path -LiteralPath $ConfigFile) -or (Test-Path -LiteralPath $ServerDir)) {
+            $text = Get-IniText
+        }
 
         $txtName.Text = Get-IniValue $text "ServerName" "Mi servidor Palworld"
         $txtDescription.Text = Get-IniValue $text "ServerDescription" ""
@@ -1013,32 +1174,60 @@ function Load-Settings {
         }
 
         $chkPvP.Checked = (Get-IniValue $text "bIsPvP" "False") -eq "True"
-
-        Load-LauncherOptions
-        Reset-RestartSchedule
     }
     catch {
         Show-Message $_.Exception.Message "Error al leer configuración" "Error"
     }
+
+    # Las opciones del launcher se cargan SIEMPRE, aunque el INI del server
+    # haya fallado: si no, un ServerRoot inaccesible dejaria los defaults en
+    # la UI y el proximo guardado pisaria la configuracion real del usuario.
+    Load-LauncherOptions
+    Reset-RestartSchedule
 }
 
-function Backup-World {
+function Backup-World([bool]$SkipRetention = $false) {
     if (-not (Test-Path -LiteralPath $SaveDir)) {
         return $null
     }
 
+    New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+
     $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
     $destination = Join-Path $BackupDir "Palworld_Save_$timestamp.zip"
+    $tempDestination = $destination + ".tmp"
 
-    Compress-Archive `
-        -Path (Join-Path $SaveDir "*") `
-        -DestinationPath $destination `
-        -CompressionLevel Optimal `
-        -Force
+    if (Test-Path -LiteralPath $destination) {
+        Remove-Item -LiteralPath $destination -Force
+    }
+
+    try {
+        # ZipFile en lugar de Compress-Archive: en PowerShell 5.1 Compress-Archive
+        # falla con entradas >2 GB y consume mucha memoria con mundos grandes.
+        # Se comprime a .tmp y se renombra al final: si falla a mitad de camino
+        # no queda un .zip corrupto contando para la retencion ni para restaurar.
+        [IO.Compression.ZipFile]::CreateFromDirectory(
+            $SaveDir,
+            $tempDestination,
+            [IO.Compression.CompressionLevel]::Optimal,
+            $false
+        )
+        Move-Item -LiteralPath $tempDestination -Destination $destination -Force
+    }
+    catch {
+        Remove-Item -LiteralPath $tempDestination -Force -ErrorAction SilentlyContinue
+        throw
+    }
 
     $script:LastBackupAt = Get-Date
     Write-Activity "Backup creado: $([IO.Path]::GetFileName($destination))"
-    Apply-BackupRetention
+
+    # El backup de seguridad previo a una restauracion NO aplica retencion:
+    # la retencion podria borrar justo el zip que se esta por restaurar.
+    if (-not $SkipRetention) {
+        Apply-BackupRetention
+    }
+
     return $destination
 }
 
@@ -1047,6 +1236,17 @@ function Start-Server {
         $existing = Get-ServerProcess
         if ($existing) { Show-Message "El servidor ya está ejecutándose. PID: $($existing.Id)"; Update-Status; return }
         if (-not (Test-Path -LiteralPath $ServerExe)) { Show-Message "No se encontró:`n$ServerExe" "Error al iniciar" "Error"; return }
+        if ((Get-UnidentifiedPalServerCount) -gt 0) {
+            $confirmStart = [Windows.Forms.MessageBox]::Show(
+                "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación.`n`n" +
+                "Si en realidad es el server de ESTA carpeta (iniciado por fuera del launcher o elevado), " +
+                "iniciar un segundo proceso puede corromper el mundo.`n`n¿Iniciar de todos modos?",
+                "Iniciar servidor",
+                [Windows.Forms.MessageBoxButtons]::YesNo,
+                [Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($confirmStart -ne [Windows.Forms.DialogResult]::Yes) { return }
+        }
         Save-CriticalRuntimeSettings
         Save-LauncherOptions
         $arguments = ""
@@ -1060,6 +1260,7 @@ function Start-Server {
         }
         New-Item -ItemType File -Path $CurrentServerLog -Force | Out-Null
         $script:LogPosition = 0L
+        $script:ServerPid = $null
         $commandLine = '""' + $ServerExe + '" ' + $arguments + ' >> "' + $CurrentServerLog + '" 2>&1"'
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $env:ComSpec
@@ -1130,10 +1331,15 @@ function Stop-Server(
         Start-Sleep -Seconds 2
     }
 
+    # Barrida final SOLO sobre procesos de ESTA instalacion (por ruta del exe):
+    # jamas se mata un PalServer de otra carpeta/instalacion de la misma PC.
     Get-Process `
         -Name "PalServer","PalServer-Win64-Test","PalServer-Win64-Shipping" `
         -ErrorAction SilentlyContinue |
+        Where-Object { Test-OwnServerProcess $_ } |
         Stop-Process -Force -ErrorAction SilentlyContinue
+
+    $script:ServerPid = $null
 
     Update-Status
     Write-Activity "Servidor detenido."
@@ -1187,13 +1393,76 @@ function Restart-Server([bool]$Automatic = $false) {
     }
 }
 
+function Install-SteamCmd {
+    $steamCmdDir = [IO.Path]::GetDirectoryName($SteamCmdExe)
+    New-Item -ItemType Directory -Force -Path $steamCmdDir | Out-Null
+
+    $zipPath = Join-Path $env:TEMP ("steamcmd_" + [guid]::NewGuid().ToString("N") + ".zip")
+
+    $lblAction.Text = "Descargando SteamCMD desde Valve..."
+    $form.Refresh()
+
+    # PS 5.1 sobre .NET Framework viejo puede no ofrecer TLS 1.2 por default
+    # y el CDN de Valve lo exige; -bor para no deshabilitar protocolos futuros.
+    [Net.ServicePointManager]::SecurityProtocol = `
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+    $previousProgress = $ProgressPreference
+    try {
+        $ProgressPreference = "SilentlyContinue"
+        Invoke-WebRequest `
+            -Uri "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip" `
+            -OutFile $zipPath `
+            -UseBasicParsing `
+            -TimeoutSec 120
+
+        Expand-Archive -Path $zipPath -DestinationPath $steamCmdDir -Force
+    }
+    finally {
+        $ProgressPreference = $previousProgress
+        Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Activity "SteamCMD instalado en $steamCmdDir."
+}
+
 function Update-Server {
     if (-not (Test-Path -LiteralPath $SteamCmdExe)) {
-        Show-Message "No se encontró SteamCMD." "Error" "Error"
-        return
+        $answer = [Windows.Forms.MessageBox]::Show(
+            "SteamCMD no está instalado.`n`n" +
+            "¿Descargarlo ahora desde el sitio oficial de Valve?`n`n" +
+            "Se instalará en:`n" + [IO.Path]::GetDirectoryName($SteamCmdExe),
+            "Instalar SteamCMD",
+            [Windows.Forms.MessageBoxButtons]::YesNo,
+            [Windows.Forms.MessageBoxIcon]::Question
+        )
+
+        if ($answer -ne [Windows.Forms.DialogResult]::Yes) {
+            return
+        }
+
+        try {
+            Install-SteamCmd
+        }
+        catch {
+            Show-Message ("No se pudo instalar SteamCMD:`n`n" + $_.Exception.Message) "Instalar SteamCMD" "Error"
+            return
+        }
     }
 
     $wasRunning = [bool](Get-ServerProcess)
+
+    if (-not $wasRunning -and (Get-UnidentifiedPalServerCount) -gt 0) {
+        $confirmUpdate = [Windows.Forms.MessageBox]::Show(
+            "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación.`n`n" +
+            "Si ese proceso usa los archivos de ESTE server, la actualización puede fallar o dejarlo inconsistente.`n`n" +
+            "¿Continuar de todos modos?",
+            "Actualizar servidor",
+            [Windows.Forms.MessageBoxButtons]::YesNo,
+            [Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($confirmUpdate -ne [Windows.Forms.DialogResult]::Yes) { return }
+    }
 
     if ($wasRunning) {
         Stop-Server
@@ -1228,6 +1497,10 @@ function Get-ServerVersion {
         return [string]$script:LastServerInfo.version
     }
 
+    if (-not (Test-Path -LiteralPath $ServerExe)) {
+        return "no instalado (usá ACTUALIZAR)"
+    }
+
     try {
         $binary = Get-ChildItem `
             -LiteralPath $ServerDir `
@@ -1255,16 +1528,10 @@ function Get-ServerVersion {
     catch {}
 
     try {
-        $manifest = Get-ChildItem `
-            -LiteralPath $Root `
-            -Filter "appmanifest_2394010.acf" `
-            -File `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+        $manifestPath = Join-Path $ServerDir "steamapps\appmanifest_2394010.acf"
 
-        if ($manifest) {
-            $raw = Get-Content -LiteralPath $manifest.FullName -Raw
+        if (Test-Path -LiteralPath $manifestPath) {
+            $raw = Get-Content -LiteralPath $manifestPath -Raw
             $match = [regex]::Match($raw, '"buildid"\s+"(?<id>\d+)"')
 
             if ($match.Success) {
@@ -1286,7 +1553,7 @@ function Get-ScheduleSignature {
         "offline"
     }
 
-    $mode = [string]$cmbRestartMode.SelectedItem
+    $mode = Get-RestartModeKey
     $hours = [int]$numAutoRestart.Value
     $time = $timeRestart.Value.ToString("HH:mm")
 
@@ -1307,9 +1574,9 @@ function Calculate-NextRestart {
         return $null
     }
 
-    $mode = [string]$cmbRestartMode.SelectedItem
+    $mode = Get-RestartModeKey
 
-    if ($mode -eq "Cada ciertas horas") {
+    if ($mode -eq "interval") {
         $hours = [int]$numAutoRestart.Value
 
         if ($hours -le 0) {
@@ -1325,7 +1592,7 @@ function Calculate-NextRestart {
         return $candidate
     }
 
-    if ($mode -eq "Hora fija diaria") {
+    if ($mode -eq "daily") {
         $now = Get-Date
         $candidate = Get-Date `
             -Year $now.Year `
@@ -1411,13 +1678,13 @@ function Cancel-ScheduledRestart {
     }
 
     $previousTarget = $script:NextRestartAt
-    $mode = [string]$cmbRestartMode.SelectedItem
+    $mode = Get-RestartModeKey
 
-    if ($mode -eq "Cada ciertas horas") {
+    if ($mode -eq "interval") {
         $hours = [int]$numAutoRestart.Value
         $script:NextRestartAt = (Get-Date).AddHours($hours)
     }
-    elseif ($mode -eq "Hora fija diaria") {
+    elseif ($mode -eq "daily") {
         $script:NextRestartAt = $previousTarget.AddDays(1)
     }
     else {
@@ -1826,7 +2093,15 @@ Add-MainButton "BACKUP" 620 135 {
     }
 } | Out-Null
 Add-MainButton "CARPETA SERVER" 765 170 {
-    Start-Process explorer.exe $ServerDir
+    if (Test-Path -LiteralPath $ServerDir) {
+        Start-Process explorer.exe $ServerDir
+    }
+    else {
+        Show-Message (
+            "El servidor todavía no está instalado en:`n$ServerDir`n`n" +
+            "Usá el botón ACTUALIZAR para instalarlo."
+        ) "Carpeta del servidor"
+    }
 } | Out-Null
 
 $group = New-Object Windows.Forms.GroupBox
@@ -1944,8 +2219,13 @@ $btnIni.Text = "ABRIR INI"
 $btnIni.Location = New-Object Drawing.Point(280,345)
 $btnIni.Size = New-Object Drawing.Size(145,35)
 $btnIni.Add_Click({
-    Ensure-Ini
-    Start-Process notepad.exe $ConfigFile
+    try {
+        Ensure-Ini
+        Start-Process notepad.exe $ConfigFile
+    }
+    catch {
+        Show-Message ("No se pudo abrir el INI:`n" + $_.Exception.Message) "Abrir INI" "Error"
+    }
 })
 $group.Controls.Add($btnIni)
 
@@ -1954,7 +2234,13 @@ $btnBackups.Text = "CARPETA BACKUPS"
 $btnBackups.Location = New-Object Drawing.Point(440,345)
 $btnBackups.Size = New-Object Drawing.Size(180,35)
 $btnBackups.Add_Click({
-    Start-Process explorer.exe $BackupDir
+    try {
+        New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+        Start-Process explorer.exe $BackupDir
+    }
+    catch {
+        Show-Message ("No se pudo abrir la carpeta de backups:`n" + $_.Exception.Message) "Backups" "Error"
+    }
 })
 $group.Controls.Add($btnBackups)
 
@@ -1979,7 +2265,7 @@ $cmbRestartMode.DropDownStyle = "DropDownList"
     "Cada ciertas horas",
     "Hora fija diaria"
 ))
-$cmbRestartMode.SelectedItem = "Desactivado"
+$cmbRestartMode.SelectedIndex = 0
 $scheduleGroup.Controls.Add($cmbRestartMode)
 
 $hoursLabel = New-Object Windows.Forms.Label
@@ -2068,18 +2354,19 @@ $securityNote.Location = New-Object Drawing.Point(28,810)
 $form.Controls.Add($securityNote)
 
 $cmbRestartMode.Add_SelectedIndexChanged({
+    if ($script:LoadingOptions) { return }
     Save-LauncherOptions
     Reset-RestartSchedule
 })
 
 $numAutoRestart.Add_ValueChanged({
-    if ([string]$cmbRestartMode.SelectedItem -eq "Cada ciertas horas") {
+    if ((Get-RestartModeKey) -eq "interval") {
         Reset-RestartSchedule
     }
 })
 
 $timeRestart.Add_ValueChanged({
-    if ([string]$cmbRestartMode.SelectedItem -eq "Hora fija diaria") {
+    if ((Get-RestartModeKey) -eq "daily") {
         Reset-RestartSchedule
     }
 })
@@ -2110,7 +2397,7 @@ $btnKickPlayer=New-Object Windows.Forms.Button; $btnKickPlayer.Text='EXPULSAR'; 
 $btnBanPlayer=New-Object Windows.Forms.Button; $btnBanPlayer.Text='BANEAR'; $btnBanPlayer.Location=New-Object Drawing.Point(345,770); $btnBanPlayer.Size=New-Object Drawing.Size(140,35); $btnBanPlayer.Add_Click({Ban-SelectedPlayer}); $tabPlayers.Controls.Add($btnBanPlayer)
 
 $nb=New-Object Windows.Forms.Button; $nb.Text='CREAR BACKUP AHORA'; $nb.Location=New-Object Drawing.Point(15,15); $nb.Size=New-Object Drawing.Size(200,36); $nb.Add_Click({try{$b=Backup-World;Refresh-BackupsList;if($b){Show-Message "Backup creado:`n$b"}}catch{Show-Message $_.Exception.Message 'Backup' 'Error'}}); $tabBackups.Controls.Add($nb)
-$ob=New-Object Windows.Forms.Button; $ob.Text='ABRIR CARPETA'; $ob.Location=New-Object Drawing.Point(230,15); $ob.Size=New-Object Drawing.Size(160,36); $ob.Add_Click({Start-Process explorer.exe $BackupDir}); $tabBackups.Controls.Add($ob)
+$ob=New-Object Windows.Forms.Button; $ob.Text='ABRIR CARPETA'; $ob.Location=New-Object Drawing.Point(230,15); $ob.Size=New-Object Drawing.Size(160,36); $ob.Add_Click({try{New-Item -ItemType Directory -Force -Path $BackupDir|Out-Null;Start-Process explorer.exe $BackupDir}catch{Show-Message ("No se pudo abrir la carpeta de backups:`n"+$_.Exception.Message) 'Backups' 'Error'}}); $tabBackups.Controls.Add($ob)
 $listBackups=New-Object Windows.Forms.ListView; $listBackups.Location=New-Object Drawing.Point(15,65); $listBackups.Size=New-Object Drawing.Size(1010,695); $listBackups.View='Details'; $listBackups.FullRowSelect=$true; $listBackups.GridLines=$true; [void]$listBackups.Columns.Add('Archivo',570); [void]$listBackups.Columns.Add('Fecha',230); [void]$listBackups.Columns.Add('Tamaño',150); $tabBackups.Controls.Add($listBackups)
 $btnRestoreBackup=New-Object Windows.Forms.Button; $btnRestoreBackup.Text='RESTAURAR SELECCIONADO'; $btnRestoreBackup.Location=New-Object Drawing.Point(580,15); $btnRestoreBackup.Size=New-Object Drawing.Size(210,36); $btnRestoreBackup.Add_Click({Restore-SelectedBackup}); $tabBackups.Controls.Add($btnRestoreBackup)
 $btnDeleteBackup=New-Object Windows.Forms.Button; $btnDeleteBackup.Text='ELIMINAR SELECCIONADO'; $btnDeleteBackup.Location=New-Object Drawing.Point(805,15); $btnDeleteBackup.Size=New-Object Drawing.Size(200,36); $btnDeleteBackup.Add_Click({Delete-SelectedBackup}); $tabBackups.Controls.Add($btnDeleteBackup)
