@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 # ServerRoot (server + mundos + backups). Ver launcher\lib\Paths.ps1.
 . (Join-Path $PSScriptRoot "lib\Paths.ps1")
 . (Join-Path $PSScriptRoot "lib\I18n.ps1")
+. (Join-Path $PSScriptRoot "lib\Wizard.ps1")
 
+$script:LauncherScriptDir = $PSScriptRoot
 $LauncherPaths = Get-LauncherPaths -ScriptDir $PSScriptRoot
 
 # Identidad del producto (version.json) y links configurables (app_links.json).
@@ -89,27 +91,36 @@ if ($LauncherPaths.SettingsCorrupt) {
     ) | Out-Null
 }
 
-$IsPortable = $LauncherPaths.IsPortable
-$InstallRoot = $LauncherPaths.InstallRoot
-$DataRoot = $LauncherPaths.DataRoot
-$ServerRoot = $LauncherPaths.ServerRoot
+# Asigna todas las variables de rutas del launcher desde una resolucion de
+# Get-LauncherPaths. Reutilizable: el wizard re-resuelve en caliente cuando
+# el usuario instala o adopta un server.
+function Set-LauncherPathVariables {
+    param([Parameter(Mandatory=$true)]$Paths)
 
-$ServerDir = $LauncherPaths.ServerDir
-$ServerExe = Join-Path $ServerDir "PalServer.exe"
-$SteamCmdExe = Join-Path $LauncherPaths.SteamCmdDir "steamcmd.exe"
-$ConfigFile = Join-Path $ServerDir "Pal\Saved\Config\WindowsServer\PalWorldSettings.ini"
-$DefaultConfig = Join-Path $ServerDir "DefaultPalWorldSettings.ini"
-$SaveDir = Join-Path $ServerDir "Pal\Saved"
-$BackupDir = $LauncherPaths.BackupDir
-$LogsDir = $LauncherPaths.LogsDir
-$CurrentServerLog = Join-Path $LogsDir "server_current.log"
-$ChatHistoryFile = Join-Path $LogsDir "chat_history.log"
-$AutomationConfigFile = Join-Path $DataRoot "automation-settings.json"
-$TipsFile = Join-Path $DataRoot "palworld_tips.txt"
-$CustomMessagesFile = Join-Path $DataRoot "custom_messages.txt"
-$ActivityLogFile = Join-Path $LogsDir "activity.log"
-$GeminiKeyFile = Join-Path $DataRoot "gemini-key.dat"
-$LauncherConfig = $LauncherPaths.SettingsFile
+    $script:LauncherPaths = $Paths
+    $script:IsPortable = $Paths.IsPortable
+    $script:InstallRoot = $Paths.InstallRoot
+    $script:DataRoot = $Paths.DataRoot
+    $script:ServerRoot = $Paths.ServerRoot
+    $script:ServerDir = $Paths.ServerDir
+    $script:ServerExe = Join-Path $Paths.ServerDir "PalServer.exe"
+    $script:SteamCmdExe = Join-Path $Paths.SteamCmdDir "steamcmd.exe"
+    $script:ConfigFile = Join-Path $Paths.ServerDir "Pal\Saved\Config\WindowsServer\PalWorldSettings.ini"
+    $script:DefaultConfig = Join-Path $Paths.ServerDir "DefaultPalWorldSettings.ini"
+    $script:SaveDir = Join-Path $Paths.ServerDir "Pal\Saved"
+    $script:BackupDir = $Paths.BackupDir
+    $script:LogsDir = $Paths.LogsDir
+    $script:CurrentServerLog = Join-Path $Paths.LogsDir "server_current.log"
+    $script:ChatHistoryFile = Join-Path $Paths.LogsDir "chat_history.log"
+    $script:AutomationConfigFile = Join-Path $Paths.DataRoot "automation-settings.json"
+    $script:TipsFile = Join-Path $Paths.DataRoot "palworld_tips.txt"
+    $script:CustomMessagesFile = Join-Path $Paths.DataRoot "custom_messages.txt"
+    $script:ActivityLogFile = Join-Path $Paths.LogsDir "activity.log"
+    $script:GeminiKeyFile = Join-Path $Paths.DataRoot "gemini-key.dat"
+    $script:LauncherConfig = $Paths.SettingsFile
+}
+
+Set-LauncherPathVariables $LauncherPaths
 
 # Los datos del usuario nunca se escriben en la carpeta de instalacion
 # (salvo modo portable, donde DataRoot == InstallRoot a proposito).
@@ -1001,6 +1012,9 @@ function Save-LauncherOptions {
         AutoRestartHours = [int]$numAutoRestart.Value
         DailyRestartTime = $timeValue
         ServerRoot = $ServerRoot
+        # ServerDir solo se persiste si difiere del layout clasico
+        # <ServerRoot>\server (caso "server existente adoptado" del wizard).
+        ServerDir = $(if ($ServerDir -ne (Join-Path $ServerRoot "server")) { $ServerDir } else { $null })
         Language = $script:UILanguage
         ServerMessageLanguage = $script:ServerLanguage
     } | ConvertTo-Json | Set-Content -LiteralPath $LauncherConfig -Encoding UTF8
@@ -1425,14 +1439,29 @@ function Restart-Server([bool]$Automatic = $false) {
     }
 }
 
+# Descarga y extrae SteamCMD. Reutilizable desde el wizard: $TargetDir y
+# $OnStatus opcionales (sin ellos usa las rutas y labels del launcher).
 function Install-SteamCmd {
-    $steamCmdDir = [IO.Path]::GetDirectoryName($SteamCmdExe)
+    param(
+        [string]$TargetDir = "",
+        [scriptblock]$OnStatus = $null
+    )
+
+    $steamCmdDir = $TargetDir
+    if ([string]::IsNullOrWhiteSpace($steamCmdDir)) {
+        $steamCmdDir = [IO.Path]::GetDirectoryName($SteamCmdExe)
+    }
     New-Item -ItemType Directory -Force -Path $steamCmdDir | Out-Null
 
     $zipPath = Join-Path $env:TEMP ("steamcmd_" + [guid]::NewGuid().ToString("N") + ".zip")
 
-    $lblAction.Text = T "update.steamcmd_downloading"
-    $form.Refresh()
+    if ($OnStatus) {
+        & $OnStatus (T "update.steamcmd_downloading")
+    }
+    else {
+        $lblAction.Text = T "update.steamcmd_downloading"
+        $form.Refresh()
+    }
 
     # PS 5.1 sobre .NET Framework viejo puede no ofrecer TLS 1.2 por default
     # y el CDN de Valve lo exige; -bor para no deshabilitar protocolos futuros.
@@ -1501,14 +1530,17 @@ function Update-Server {
 
     $arguments = "+force_install_dir `"$ServerDir`" +login anonymous +app_update 2394010 validate +quit"
 
+    # Ventana visible: SteamCMD muestra su propio progreso de descarga.
     $process = Start-Process `
         -FilePath $SteamCmdExe `
         -ArgumentList $arguments `
         -Wait `
         -PassThru `
-        -WindowStyle Hidden
+        -WindowStyle Normal
 
-    if ($process.ExitCode -ne 0) {
+    # SteamCMD puede devolver codigos raros (p.ej. 7 al auto-actualizarse):
+    # el criterio real de exito es que el binario del server exista.
+    if (-not (Test-Path -LiteralPath $ServerExe)) {
         Show-Message (T "update.steamcmd_exit" @($process.ExitCode)) (T "update.error_title") "Error"
     }
     elseif ($wasRunning) {
@@ -2509,6 +2541,13 @@ $btnGitHub.Size = New-Object Drawing.Size(180, 34)
 $btnGitHub.Add_Click({ if ($AppLinks.homepage_url) { Start-Process $AppLinks.homepage_url } })
 $versionGroup.Controls.Add($btnGitHub)
 
+$btnOpenWizard = New-Object Windows.Forms.Button
+$btnOpenWizard.Text = T "wizard.btn_open_wizard"
+$btnOpenWizard.Location = New-Object Drawing.Point(210, 165)
+$btnOpenWizard.Size = New-Object Drawing.Size(255, 34)
+$btnOpenWizard.Add_Click({ Show-FirstRunWizard })
+$versionGroup.Controls.Add($btnOpenWizard)
+
 $langGroup = New-Object Windows.Forms.GroupBox
 $langGroup.Text = T "about.language"
 $langGroup.Location = New-Object Drawing.Point(25, 330)
@@ -2636,6 +2675,17 @@ $form.Add_Shown({
     Update-Status
     Update-RestartSchedule
     Start-MetricsWorker
+
+    # Primera ejecucion sin server configurado: ofrecer el asistente.
+    # "Ahora no" queda registrado y no se vuelve a preguntar (boton manual
+    # en Acerca de). En modo portable no aplica (layout clasico).
+    if (
+        -not $IsPortable -and
+        -not (Test-Path -LiteralPath $ServerExe) -and
+        -not (Test-Path -LiteralPath (Join-Path $DataRoot "wizard-declined.flag"))
+    ) {
+        Show-FirstRunWizard
+    }
 })
 
 $form.Add_FormClosing({

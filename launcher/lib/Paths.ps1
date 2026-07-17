@@ -23,6 +23,7 @@ function Get-LauncherPaths {
     $isPortable = Test-Path -LiteralPath (Join-Path $installRoot "portable.flag")
 
     $settingsCorrupt = $false
+    $serverDirOverride = $null
 
     if ($isPortable) {
         $dataRoot = $installRoot
@@ -35,12 +36,17 @@ function Get-LauncherPaths {
         # 1) ServerRoot persistido por el usuario. Se respeta aunque el path no
         #    exista en este momento (p.ej. disco externo desconectado): perder
         #    la referencia seria peor que mostrar "servidor no encontrado".
+        #    ServerDir opcional: para servers existentes adoptados por el wizard
+        #    cuyo PalServer.exe no vive en <ServerRoot>\server.
         $settingsFile = Join-Path $dataRoot "launcher-settings.json"
         if (Test-Path -LiteralPath $settingsFile) {
             try {
                 $config = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
                 if ($config.ServerRoot) {
                     $serverRoot = [string]$config.ServerRoot
+                }
+                if ($config.ServerDir) {
+                    $serverDirOverride = [string]$config.ServerDir
                 }
             }
             catch {
@@ -77,18 +83,72 @@ function Get-LauncherPaths {
     }
     catch {}
 
+    $serverDir = Join-Path $serverRoot "server"
+    if ($serverDirOverride) {
+        try {
+            if ([IO.Path]::IsPathRooted($serverDirOverride)) {
+                $serverDirOverride = [IO.Path]::GetFullPath($serverDirOverride)
+                if ($serverDirOverride.Length -gt 3) {
+                    $serverDirOverride = $serverDirOverride.TrimEnd('\')
+                }
+                $serverDir = $serverDirOverride
+            }
+        }
+        catch {}
+    }
+
     return @{
         IsPortable      = $isPortable
         InstallRoot     = $installRoot
         DataRoot        = $dataRoot
         ServerRoot      = $serverRoot
-        ServerDir       = Join-Path $serverRoot "server"
+        ServerDir       = $serverDir
         BackupDir       = Join-Path $serverRoot "backups"
         SteamCmdDir     = Join-Path $serverRoot "steamcmd"
         LogsDir         = Join-Path $dataRoot "logs"
         SettingsFile    = Join-Path $dataRoot "launcher-settings.json"
         SettingsCorrupt = $settingsCorrupt
     }
+}
+
+# Interpreta la carpeta que el usuario eligio como "server existente".
+# Acepta: la carpeta que contiene server\PalServer.exe (layout clasico) o la
+# que contiene PalServer.exe directamente. Devuelve Found=$false si no hay server.
+# Puro y sin UI: testeable headless.
+function Resolve-ExistingServerSelection {
+    param([Parameter(Mandatory=$true)][string]$Folder)
+
+    $result = @{ Found = $false; ServerRoot = $null; ServerDir = $null; ServerExe = $null }
+
+    if ([string]::IsNullOrWhiteSpace($Folder) -or -not (Test-Path -LiteralPath $Folder)) {
+        return $result
+    }
+
+    try {
+        $Folder = [IO.Path]::GetFullPath($Folder)
+        if ($Folder.Length -gt 3) { $Folder = $Folder.TrimEnd('\') }
+    }
+    catch { return $result }
+
+    $classic = Join-Path $Folder "server\PalServer.exe"
+    $direct = Join-Path $Folder "PalServer.exe"
+
+    if (Test-Path -LiteralPath $classic) {
+        $result.Found = $true
+        $result.ServerRoot = $Folder
+        $result.ServerDir = Join-Path $Folder "server"
+        $result.ServerExe = $classic
+    }
+    elseif (Test-Path -LiteralPath $direct) {
+        # El server vive directo en la carpeta elegida: ServerRoot = la misma
+        # carpeta (backups\ y steamcmd\ van como subcarpetas al lado del server).
+        $result.Found = $true
+        $result.ServerRoot = $Folder
+        $result.ServerDir = $Folder
+        $result.ServerExe = $direct
+    }
+
+    return $result
 }
 
 # Archivos de configuracion del layout viejo que todavia no existen en DataRoot.

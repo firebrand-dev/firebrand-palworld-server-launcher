@@ -15,8 +15,53 @@ param([int]$WaitSeconds = 14)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class SmokeWin32 {
+    public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+}
+"@
+
+# True si el proceso tiene una ventana visible con EXACTAMENTE ese titulo.
+function Test-ProcessHasWindowTitle([int]$ProcessId, [string]$Title) {
+    $script:__winFound = $false
+    $callback = {
+        param($hWnd, $lParam)
+        $windowPid = 0
+        [SmokeWin32]::GetWindowThreadProcessId($hWnd, [ref]$windowPid) | Out-Null
+        if ($windowPid -eq $ProcessId -and [SmokeWin32]::IsWindowVisible($hWnd)) {
+            $sb = New-Object Text.StringBuilder 512
+            [SmokeWin32]::GetWindowTextW($hWnd, $sb, 512) | Out-Null
+            if ($sb.ToString() -eq $Title) { $script:__winFound = $true }
+        }
+        return $true
+    }
+    [SmokeWin32]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
+    return $script:__winFound
+}
+
 $script:passed = 0
 $script:failed = 0
+
+# Titulo del wizard en espanol (el idioma que resuelve el sandbox en esta PC)
+$wizardTitle = (Get-Content -LiteralPath (Join-Path $root "locales\es.json") -Raw -Encoding UTF8 | ConvertFrom-Json)."wizard.title"
+
+# Copia el launcher COMPLETO (codigo + locales + version + config) a un sandbox
+function Copy-LauncherTo([string]$TargetRoot) {
+    New-Item -ItemType Directory -Path (Join-Path $TargetRoot "launcher") -Force | Out-Null
+    Copy-Item (Join-Path $root "launcher\*") (Join-Path $TargetRoot "launcher") -Recurse -Force
+    New-Item -ItemType Directory -Path (Join-Path $TargetRoot "locales") -Force | Out-Null
+    Copy-Item (Join-Path $root "locales\*.json") (Join-Path $TargetRoot "locales") -Force
+    New-Item -ItemType Directory -Path (Join-Path $TargetRoot "config") -Force | Out-Null
+    Copy-Item (Join-Path $root "config\app_links.json") (Join-Path $TargetRoot "config") -Force
+    Copy-Item (Join-Path $root "version.json") $TargetRoot -Force
+}
 
 function Assert([string]$Name, $Condition) {
     if ($Condition) {
@@ -55,8 +100,7 @@ $proc2 = $null
 try {
     # ================= MODO PORTABLE (con server ya instalado) =================
     $portableRoot = Join-Path $tmp "portable"
-    New-Item -ItemType Directory -Path (Join-Path $portableRoot "launcher") -Force | Out-Null
-    Copy-Item (Join-Path $root "launcher\*") (Join-Path $portableRoot "launcher") -Recurse -Force
+    Copy-LauncherTo $portableRoot
     Set-Content -Path (Join-Path $portableRoot "portable.flag") -Value "portable" -Encoding UTF8
     # Server "instalado" (fake): con server presente, el INI SI debe crearse al arrancar
     New-Item -ItemType Directory -Path (Join-Path $portableRoot "server") -Force | Out-Null
@@ -66,18 +110,19 @@ try {
     $proc = Start-LauncherSandbox (Join-Path $portableRoot "launcher\FirebrandPalworldLauncher.ps1")
     Start-Sleep -Seconds $WaitSeconds
     $stillRunning = -not $proc.HasExited
+    $wizardVisiblePortable = Test-ProcessHasWindowTitle -ProcessId $proc.Id -Title $wizardTitle
     Stop-LauncherSandbox $proc
 
     Assert "portable: el launcher quedo corriendo (no crasheo al inicio)" $stillRunning
     Assert "portable: logs\ creado junto al launcher" (Test-Path (Join-Path $portableRoot "logs"))
     Assert "portable: con server presente, INI creado/reparado al arrancar" (Test-Path (Join-Path $portableRoot "server\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini"))
+    Assert "portable: el wizard NO aparece (modo portable con server)" (-not $wizardVisiblePortable)
 
-    # ================= MODO INSTALADO =================
+    # ================= MODO INSTALADO (sin server: debe aparecer el wizard) =================
     $installRoot = Join-Path $tmp "installed"
     $fakeLocal = Join-Path $tmp "fakelocal"
     $serverRoot = Join-Path $tmp "serverroot"
-    New-Item -ItemType Directory -Path (Join-Path $installRoot "launcher") -Force | Out-Null
-    Copy-Item (Join-Path $root "launcher\*") (Join-Path $installRoot "launcher") -Recurse -Force
+    Copy-LauncherTo $installRoot
 
     # Pre-sembrar ServerRoot para no tocar el C:\PalworldServer real durante el test
     $dataRoot = Join-Path $fakeLocal "FirebrandSoftware\PalworldLauncher"
@@ -97,6 +142,7 @@ try {
         $env:LOCALAPPDATA = $savedLocalAppData
     }
     $stillRunning2 = -not $proc2.HasExited
+    $wizardVisibleInstalled = Test-ProcessHasWindowTitle -ProcessId $proc2.Id -Title $wizardTitle
     Stop-LauncherSandbox $proc2
 
     $installSnapshotAfter = @(Get-ChildItem -Path $installRoot -Recurse -Force | ForEach-Object { $_.FullName }) | Sort-Object
@@ -108,6 +154,7 @@ try {
     # del server (hallazgo de la revision Fase 1): recien se crea con una
     # accion del usuario (instalar/actualizar/guardar configuracion).
     Assert "instalado: sin server, NO se crea el arbol del ServerRoot al arrancar" (-not (Test-Path (Join-Path $serverRoot "server")))
+    Assert "instalado: sin server, el WIZARD aparece automaticamente" $wizardVisibleInstalled
     Assert "instalado: la carpeta de instalacion quedo INTOCADA (0 archivos nuevos)" ($installDiff.Count -eq 0)
     if ($installDiff.Count -gt 0) {
         $installDiff | ForEach-Object { Write-Host ("     diff: " + $_.SideIndicator + " " + $_.InputObject) }

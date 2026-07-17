@@ -144,6 +144,50 @@ $afterMigration = Get-Content $pm.SettingsFile -Raw | ConvertFrom-Json
 Assert "migracion: settings preexistente en DataRoot queda intacto" ($afterMigration.ServerRoot -eq "E:\otro")
 Assert "migracion: los demas archivos pendientes si se copian" (Test-Path (Join-Path $pm.DataRoot "custom_messages.txt"))
 
+# ---------- Caso 7: adopcion de server existente (wizard Fase 3) ----------
+# 7a: layout clasico (carpeta con server\PalServer.exe)
+$adoptClassic = Join-Path $tmp "adopt\clasico"
+New-Item -ItemType Directory -Path (Join-Path $adoptClassic "server") -Force | Out-Null
+Set-Content -Path (Join-Path $adoptClassic "server\PalServer.exe") -Value "fake" -Encoding UTF8
+$sel1 = Resolve-ExistingServerSelection -Folder $adoptClassic
+Assert "adopcion: layout clasico detectado" $sel1.Found
+Assert "adopcion: clasico ServerRoot = carpeta elegida" ($sel1.ServerRoot -eq $adoptClassic)
+Assert "adopcion: clasico ServerDir = <carpeta>\server" ($sel1.ServerDir -eq (Join-Path $adoptClassic "server"))
+
+# 7b: PalServer.exe directo en la carpeta (instalacion "a mano")
+$adoptDirect = Join-Path $tmp "adopt\directo"
+New-Item -ItemType Directory -Path $adoptDirect -Force | Out-Null
+Set-Content -Path (Join-Path $adoptDirect "PalServer.exe") -Value "fake" -Encoding UTF8
+$sel2 = Resolve-ExistingServerSelection -Folder $adoptDirect
+Assert "adopcion: exe directo detectado" $sel2.Found
+Assert "adopcion: directo ServerDir = la misma carpeta" ($sel2.ServerDir -eq $adoptDirect)
+Assert "adopcion: directo ServerRoot = la misma carpeta" ($sel2.ServerRoot -eq $adoptDirect)
+
+# 7c: carpeta sin server
+$adoptEmpty = Join-Path $tmp "adopt\vacia"
+New-Item -ItemType Directory -Path $adoptEmpty -Force | Out-Null
+$sel3 = Resolve-ExistingServerSelection -Folder $adoptEmpty
+Assert "adopcion: carpeta sin server -> Found=false" (-not $sel3.Found)
+$sel4 = Resolve-ExistingServerSelection -Folder (Join-Path $tmp "no\existe\nada")
+Assert "adopcion: carpeta inexistente -> Found=false" (-not $sel4.Found)
+
+# 7d: override de ServerDir persistido (server adoptado con exe directo)
+$fakeLocal4 = Join-Path $tmp "localappdata4"
+$dr4 = Join-Path $fakeLocal4 "FirebrandSoftware\PalworldLauncher"
+New-Item -ItemType Directory -Path $dr4 -Force | Out-Null
+('{"ServerRoot":"' + ($adoptDirect -replace '\\','\\\\') + '","ServerDir":"' + ($adoptDirect -replace '\\','\\\\') + '"}') |
+    Set-Content -Path (Join-Path $dr4 "launcher-settings.json") -Encoding UTF8
+$p8 = Get-LauncherPaths -ScriptDir (Join-Path $installRoot "launcher") -LocalAppData $fakeLocal4
+Assert "override: ServerDir respetado desde settings" ($p8.ServerDir -eq $adoptDirect)
+Assert "override: BackupDir sigue colgando de ServerRoot" ($p8.BackupDir -eq (Join-Path $adoptDirect "backups"))
+
+# 7e: sin override -> ServerDir clasico
+Remove-Item (Join-Path $dr4 "launcher-settings.json") -Force
+('{"ServerRoot":"' + ($adoptClassic -replace '\\','\\\\') + '"}') |
+    Set-Content -Path (Join-Path $dr4 "launcher-settings.json") -Encoding UTF8
+$p9 = Get-LauncherPaths -ScriptDir (Join-Path $installRoot "launcher") -LocalAppData $fakeLocal4
+Assert "sin override: ServerDir = <ServerRoot>\server" ($p9.ServerDir -eq (Join-Path $adoptClassic "server"))
+
 # ---------- Limpieza ----------
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
