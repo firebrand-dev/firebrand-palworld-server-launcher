@@ -17,7 +17,10 @@ $files = @(
     (Join-Path $root "tools\test_paths.ps1"),
     (Join-Path $root "tools\test_i18n.ps1"),
     (Join-Path $root "tools\test_processes.ps1"),
-    (Join-Path $root "tools\test_smoke_gui.ps1")
+    (Join-Path $root "tools\test_smoke_gui.ps1"),
+    (Join-Path $root "tools\make_icon.ps1"),
+    (Join-Path $root "tools\build_installer.ps1"),
+    (Join-Path $root "tools\test_installer.ps1")
 )
 
 $failed = $false
