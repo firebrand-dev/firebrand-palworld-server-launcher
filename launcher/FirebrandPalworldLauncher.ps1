@@ -7,8 +7,31 @@ $ErrorActionPreference = "Stop"
 # Resolucion de rutas: InstallRoot (codigo) / DataRoot (datos del usuario) /
 # ServerRoot (server + mundos + backups). Ver launcher\lib\Paths.ps1.
 . (Join-Path $PSScriptRoot "lib\Paths.ps1")
+. (Join-Path $PSScriptRoot "lib\I18n.ps1")
 
 $LauncherPaths = Get-LauncherPaths -ScriptDir $PSScriptRoot
+
+# Identidad del producto (version.json) y links configurables (app_links.json).
+$ProductInfo = @{ product = "Firebrand Palworld Server Launcher"; publisher = "Firebrand Software"; version = "0.0.0"; release_channel = "dev"; build_date = "" }
+try {
+    $versionJson = Get-Content -LiteralPath (Join-Path $LauncherPaths.InstallRoot "version.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($p in $versionJson.PSObject.Properties) { $ProductInfo[$p.Name] = [string]$p.Value }
+}
+catch {}
+
+$AppLinks = @{ donate_url = "https://ko-fi.com/firebrandsoftware"; homepage_url = "https://github.com/firebrand-dev/firebrand-palworld-server-launcher"; releases_url = "" }
+try {
+    $linksJson = Get-Content -LiteralPath (Join-Path $LauncherPaths.InstallRoot "config\app_links.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($p in $linksJson.PSObject.Properties) { $AppLinks[$p.Name] = [string]$p.Value }
+}
+catch {}
+
+# Idiomas: UI para el admin, idioma separado para los avisos in-game.
+$LocalesDir = Join-Path $LauncherPaths.InstallRoot "locales"
+$InitialLanguages = Get-InitialLanguages -DataRoot $LauncherPaths.DataRoot -InstallRoot $LauncherPaths.InstallRoot -LocalesDir $LocalesDir
+$script:UILanguage = $InitialLanguages.UI
+$script:ServerLanguage = $InitialLanguages.Server
+Initialize-I18n -LocalesDir $LocalesDir -UILanguage $script:UILanguage -ServerLanguage $script:ServerLanguage
 
 # Migracion unica desde el layout viejo (config junto al launcher).
 # Si el usuario ya dijo que No, queda registrado y no se vuelve a preguntar.
@@ -17,10 +40,8 @@ if (-not $LauncherPaths.IsPortable -and -not (Test-Path -LiteralPath $MigrationD
     $pendingMigration = @(Get-OldLayoutMigrationFiles -InstallRoot $LauncherPaths.InstallRoot -DataRoot $LauncherPaths.DataRoot)
     if ($pendingMigration.Count -gt 0) {
         $migrationAnswer = [System.Windows.Forms.MessageBox]::Show(
-            "Se encontró configuración de una versión anterior junto al launcher.`n`n" +
-            "¿Copiarla a la carpeta de datos del usuario?`n" + $LauncherPaths.DataRoot + "`n`n" +
-            "Los archivos originales no se borran. Los mundos y backups no se tocan.",
-            "Migrar configuración",
+            (T "startup.migrate_text" @($LauncherPaths.DataRoot)),
+            (T "startup.migrate_title"),
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Question
         )
@@ -31,8 +52,8 @@ if (-not $LauncherPaths.IsPortable -and -not (Test-Path -LiteralPath $MigrationD
             }
             catch {
                 [System.Windows.Forms.MessageBox]::Show(
-                    "No se pudo migrar la configuración:`n" + $_.Exception.Message,
-                    "Migrar configuración",
+                    (T "startup.migrate_failed" @($_.Exception.Message)),
+                    (T "startup.migrate_title"),
                     [System.Windows.Forms.MessageBoxButtons]::OK,
                     [System.Windows.Forms.MessageBoxIcon]::Warning
                 ) | Out-Null
@@ -59,11 +80,10 @@ if ($LauncherPaths.SettingsCorrupt) {
     }
     catch { $corruptBackup = $null }
 
-    $corruptNote = if ($corruptBackup) { "`n`nSe guardó una copia en:`n$corruptBackup" } else { "" }
+    $corruptNote = if ($corruptBackup) { T "startup.corrupt_backup_note" @($corruptBackup) } else { "" }
     [System.Windows.Forms.MessageBox]::Show(
-        "El archivo de configuración del launcher (launcher-settings.json) está dañado y no se pudo leer.`n`n" +
-        "Se usarán valores predeterminados, incluida la ubicación del servidor: revisala antes de guardar." + $corruptNote,
-        "Configuración dañada",
+        (T "startup.corrupt_text" @($corruptNote)),
+        (T "startup.corrupt_title"),
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     ) | Out-Null
@@ -98,8 +118,8 @@ try {
 }
 catch {
     [System.Windows.Forms.MessageBox]::Show(
-        "No se pudo crear la carpeta de datos del launcher:`n$DataRoot`n`n" + $_.Exception.Message,
-        "Firebrand Palworld Server Launcher",
+        (T "startup.dataroot_error" @($DataRoot, $_.Exception.Message)),
+        $ProductInfo.product,
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
     ) | Out-Null
@@ -323,11 +343,11 @@ function Invoke-PalApi(
 function Send-Announcement([string]$Message) {
     try {
         Invoke-PalApi -Method "POST" -Path "announce" -Body @{ message = $Message } -TimeoutSeconds 4 | Out-Null
-        $lblAction.Text = "Aviso enviado: $Message"
+        $lblAction.Text = T "panel.announce_sent" @($Message)
         return $true
     }
     catch {
-        $lblAction.Text = "No se pudo enviar el aviso por REST API."
+        $lblAction.Text = T "panel.announce_failed"
         return $false
     }
 }
@@ -475,11 +495,11 @@ function Save-AutomationSettings {
         } | ConvertTo-Json | Set-Content -LiteralPath $AutomationConfigFile -Encoding UTF8
 
         Save-GeminiKey $txtGeminiKey.Text
-        $lblAutomationStatus.Text = "Configuración guardada: " + (Get-Date -Format "HH:mm:ss")
-        Write-Activity "Configuración de automatizaciones guardada."
+        $lblAutomationStatus.Text = T "config.saved_status" @((Get-Date -Format "HH:mm:ss"))
+        Write-Activity (T "auto.saved_activity")
     }
     catch {
-        Show-Message $_.Exception.Message "Automatizaciones" "Error"
+        Show-Message $_.Exception.Message (T "auto.title") "Error"
     }
 }
 
@@ -491,7 +511,7 @@ function Load-AutomationSettings {
     $chkIncludeTips.Checked = $true
     $chkIncludeCustom.Checked = $true
     $chkIncludeTime.Checked = $true
-    $txtMessagePrefix.Text = "[SERVIDOR]"
+    $txtMessagePrefix.Text = TS "game.default_prefix"
     $txtGeminiModel.Text = "gemini-3.5-flash"
     $txtGeminiKey.Text = Load-GeminiKey
     $chkRestartOnlyEmpty.Checked = $false
@@ -523,7 +543,7 @@ function Load-AutomationSettings {
         if ($null -ne $cfg.JoinLeaveAnnouncements) { $chkJoinLeave.Checked = [bool]$cfg.JoinLeaveAnnouncements }
     }
     catch {
-        $lblAutomationStatus.Text = "No se pudo leer automation-settings.json."
+        $lblAutomationStatus.Text = T "auto.read_error"
     }
 }
 
@@ -564,7 +584,7 @@ function Get-AutomaticMessage {
     $parts.Add($selected)
 
     if ($chkIncludeTime.Checked) {
-        $parts.Add("Hora del servidor: " + (Get-Date -Format "HH:mm"))
+        $parts.Add((TS "game.server_time" @((Get-Date -Format "HH:mm"))))
     }
 
     return ($parts -join " ")
@@ -573,7 +593,7 @@ function Get-AutomaticMessage {
 function Send-AutomaticMessage([bool]$ManualTest = $false) {
     if (-not (Get-ServerProcess)) {
         if ($ManualTest) {
-            Show-Message "El servidor está detenido." "Mensajes automáticos" "Warning"
+            Show-Message (T "auto.server_stopped") (T "auto.msg_title") "Warning"
         }
         return
     }
@@ -582,7 +602,7 @@ function Send-AutomaticMessage([bool]$ManualTest = $false) {
 
     if ([string]::IsNullOrWhiteSpace($message)) {
         if ($ManualTest) {
-            Show-Message "No hay mensajes disponibles. Revisá los archivos de consejos y mensajes personalizados." "Mensajes automáticos" "Warning"
+            Show-Message (T "auto.no_messages") (T "auto.msg_title") "Warning"
         }
         return
     }
@@ -591,15 +611,15 @@ function Send-AutomaticMessage([bool]$ManualTest = $false) {
         $script:LastAutoMessageAt = Get-Date
         Append-ChatLine `
             -Timestamp (Get-Date -Format "HH:mm:ss") `
-            -Author "SERVIDOR" `
+            -Author (T "chat.server_author") `
             -Message $message `
             -IsServer $true
 
-        Write-Activity "Mensaje automático enviado: $message"
-        $lblAutomationStatus.Text = "Último mensaje: " + (Get-Date -Format "HH:mm:ss")
+        Write-Activity (T "auto.sent_activity" @($message))
+        $lblAutomationStatus.Text = T "auto.last_sent" @((Get-Date -Format "HH:mm:ss"))
 
         if ($ManualTest) {
-            Show-Message "Mensaje enviado correctamente:`n`n$message"
+            Show-Message (T "auto.sent_ok" @($message))
         }
     }
 }
@@ -632,23 +652,25 @@ function Generate-GeminiTips {
     $model = $txtGeminiModel.Text.Trim()
 
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        Show-Message "Ingresá una clave de Gemini API." "Gemini" "Warning"
+        Show-Message (T "gemini.key_missing") (T "gemini.title") "Warning"
         return
     }
 
     if ([string]::IsNullOrWhiteSpace($model)) {
-        Show-Message "Ingresá el nombre del modelo de Gemini." "Gemini" "Warning"
+        Show-Message (T "gemini.model_missing") (T "gemini.title") "Warning"
         return
     }
 
-    $lblAutomationStatus.Text = "Generando consejos con Gemini..."
+    $lblAutomationStatus.Text = T "gemini.generating"
     $form.Refresh()
 
     try {
+        # Los consejos los leen los JUGADORES: se piden en el idioma del server.
+        $tipsLanguage = Get-LocaleDisplayName $script:ServerLanguage
         $prompt = @"
 Generá exactamente 40 consejos breves, útiles y seguros sobre Palworld para anunciar dentro de un servidor dedicado.
 Reglas:
-- Español rioplatense neutro.
+- Idioma de los consejos: $tipsLanguage.
 - Una sola oración por consejo.
 - Máximo 150 caracteres por consejo.
 - Sin numeración, viñetas, encabezados ni explicaciones.
@@ -717,13 +739,13 @@ Reglas:
         $merged | Set-Content -LiteralPath $TipsFile -Encoding UTF8
         Save-GeminiKey $apiKey
 
-        $lblAutomationStatus.Text = "Gemini agregó $($newTips.Count) consejos."
-        Write-Activity "Gemini agregó $($newTips.Count) consejos al archivo local."
-        Show-Message "Se agregaron $($newTips.Count) consejos.`nTotal disponible: $($merged.Count)"
+        $lblAutomationStatus.Text = T "gemini.added_status" @($newTips.Count)
+        Write-Activity (T "gemini.added_activity" @($newTips.Count))
+        Show-Message (T "gemini.added" @($newTips.Count, $merged.Count))
     }
     catch {
-        Show-Message ("No se pudieron generar consejos:`n`n" + $_.Exception.Message) "Gemini" "Error"
-        $lblAutomationStatus.Text = "Error al generar consejos."
+        Show-Message (T "gemini.failed" @($_.Exception.Message)) (T "gemini.title") "Error"
+        $lblAutomationStatus.Text = T "gemini.error_status"
     }
 }
 
@@ -747,57 +769,53 @@ function Apply-BackupRetention {
         $backups[$keep..($backups.Count - 1)] |
             Remove-Item -Force -ErrorAction SilentlyContinue
 
-        Write-Activity "Se aplicó retención de backups: máximo $keep."
+        Write-Activity (T "activity.retention" @($keep))
     }
     catch {}
 }
 
 function Delete-SelectedBackup {
     if ($listBackups.SelectedItems.Count -eq 0) {
-        Show-Message "Seleccioná un backup." "Backups" "Warning"
+        Show-Message (T "backups.select") (T "backups.title") "Warning"
         return
     }
 
     $path = [string]$listBackups.SelectedItems[0].Tag
     $answer = [Windows.Forms.MessageBox]::Show(
-        "¿Eliminar este backup?`n`n$path",
-        "Confirmar eliminación",
+        (T "backups.delete_confirm" @($path)),
+        (T "backups.delete_confirm_title"),
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Warning
     )
 
     if ($answer -eq [Windows.Forms.DialogResult]::Yes) {
         Remove-Item -LiteralPath $path -Force
-        Write-Activity "Backup eliminado: $([IO.Path]::GetFileName($path))"
+        Write-Activity (T "activity.backup_deleted" @([IO.Path]::GetFileName($path)))
         Refresh-BackupsList
     }
 }
 
 function Restore-SelectedBackup {
     if (Get-ServerProcess) {
-        Show-Message "Detené el servidor antes de restaurar un backup." "Restaurar backup" "Warning"
+        Show-Message (T "restore.stop_first") (T "restore.title") "Warning"
         return
     }
 
     if ((Get-UnidentifiedPalServerCount) -gt 0) {
-        Show-Message (
-            "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación " +
-            "(¿otra instalación, o un proceso elevado?).`n`n" +
-            "Por seguridad, cerralo antes de restaurar un backup."
-        ) "Restaurar backup" "Warning"
+        Show-Message (T "restore.unidentified") (T "restore.title") "Warning"
         return
     }
 
     if ($listBackups.SelectedItems.Count -eq 0) {
-        Show-Message "Seleccioná un backup." "Restaurar backup" "Warning"
+        Show-Message (T "backups.select") (T "restore.title") "Warning"
         return
     }
 
     $backupPath = [string]$listBackups.SelectedItems[0].Tag
 
     $first = [Windows.Forms.MessageBox]::Show(
-        "Esto reemplazará la carpeta Pal\Saved actual.`n`n¿Continuar?",
-        "Restaurar backup",
+        (T "restore.first_confirm"),
+        (T "restore.title"),
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -807,8 +825,8 @@ function Restore-SelectedBackup {
     }
 
     $second = [Windows.Forms.MessageBox]::Show(
-        "Confirmación final: ¿restaurar $([IO.Path]::GetFileName($backupPath))?",
-        "Confirmación final",
+        (T "restore.final_confirm" @([IO.Path]::GetFileName($backupPath))),
+        (T "restore.final_confirm_title"),
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -830,17 +848,17 @@ function Restore-SelectedBackup {
             Copy-Item -Destination $SaveDir -Recurse -Force
 
         Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Activity "Backup restaurado: $([IO.Path]::GetFileName($backupPath))"
-        Show-Message "Backup restaurado correctamente.`nSe creó una copia de seguridad previa."
+        Write-Activity (T "activity.backup_restored" @([IO.Path]::GetFileName($backupPath)))
+        Show-Message (T "restore.done")
     }
     catch {
-        Show-Message ("No se pudo restaurar:`n`n" + $_.Exception.Message) "Restaurar backup" "Error"
+        Show-Message (T "restore.failed" @($_.Exception.Message)) (T "restore.title") "Error"
     }
 }
 
 function Get-SelectedPlayer {
     if ($listPlayers.SelectedItems.Count -eq 0) {
-        Show-Message "Seleccioná un jugador." "Jugadores" "Warning"
+        Show-Message (T "players.select") (T "players.title") "Warning"
         return $null
     }
 
@@ -856,7 +874,7 @@ function Copy-SelectedPlayerUid {
 
     $uid = [string]$player.userId
     [Windows.Forms.Clipboard]::SetText($uid)
-    $lblPlayersStatus.Text = "User ID copiado: $uid"
+    $lblPlayersStatus.Text = T "players.uid_copied" @($uid)
 }
 
 function Kick-SelectedPlayer {
@@ -870,13 +888,13 @@ function Kick-SelectedPlayer {
     $name = [string]$player.name
 
     try {
-        Invoke-PalApi -Method "POST" -Path "kick" -Body @{ userid = $uid; message = "Expulsado por administración." } -TimeoutSeconds 5 | Out-Null
-        Write-Activity "Jugador expulsado: $name ($uid)"
-        Show-Message "$name fue expulsado."
+        Invoke-PalApi -Method "POST" -Path "kick" -Body @{ userid = $uid; message = (TS "game.kicked") } -TimeoutSeconds 5 | Out-Null
+        Write-Activity (T "activity.player_kicked" @($name, $uid))
+        Show-Message (T "players.kicked" @($name))
         Start-PlayersJob
     }
     catch {
-        Show-Message $_.Exception.Message "Expulsar jugador" "Error"
+        Show-Message $_.Exception.Message (T "players.kick_error_title") "Error"
     }
 }
 
@@ -891,8 +909,8 @@ function Ban-SelectedPlayer {
     $name = [string]$player.name
 
     $answer = [Windows.Forms.MessageBox]::Show(
-        "¿Banear a $name?",
-        "Confirmar ban",
+        (T "players.ban_confirm" @($name)),
+        (T "players.ban_confirm_title"),
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -903,12 +921,12 @@ function Ban-SelectedPlayer {
 
     try {
         Invoke-PalApi -Method "POST" -Path "ban" -Body @{ userid = $uid } -TimeoutSeconds 5 | Out-Null
-        Write-Activity "Jugador baneado: $name ($uid)"
-        Show-Message "$name fue baneado."
+        Write-Activity (T "activity.player_banned" @($name, $uid))
+        Show-Message (T "players.banned" @($name))
         Start-PlayersJob
     }
     catch {
-        Show-Message $_.Exception.Message "Banear jugador" "Error"
+        Show-Message $_.Exception.Message (T "players.ban_error_title") "Error"
     }
 }
 
@@ -926,7 +944,7 @@ function Update-SmartRestart {
         if ($fps -lt $threshold) {
             if ($null -eq $script:LowFpsSince) {
                 $script:LowFpsSince = Get-Date
-                Write-Activity "FPS bajos detectados: $fps."
+                Write-Activity (T "smart.low_fps_activity" @($fps))
             }
 
             if (
@@ -949,12 +967,12 @@ function Update-SmartRestart {
         }
 
         if ($chkRestartOnlyEmpty.Checked -and $players -gt 0) {
-            $lblAutomationStatus.Text = "Reinicio inteligente esperando servidor vacío."
+            $lblAutomationStatus.Text = T "smart.waiting_empty"
             return
         }
 
-        Send-Announcement "El servidor se reiniciará por mantenimiento de rendimiento." | Out-Null
-        Write-Activity "Reinicio inteligente iniciado."
+        Send-Announcement (TS "game.maintenance_restart") | Out-Null
+        Write-Activity (T "smart.restart_activity")
         $script:PendingSmartRestart = $false
         $script:LowFpsSince = $null
         Restart-Server -Automatic $true
@@ -983,6 +1001,8 @@ function Save-LauncherOptions {
         AutoRestartHours = [int]$numAutoRestart.Value
         DailyRestartTime = $timeValue
         ServerRoot = $ServerRoot
+        Language = $script:UILanguage
+        ServerMessageLanguage = $script:ServerLanguage
     } | ConvertTo-Json | Set-Content -LiteralPath $LauncherConfig -Encoding UTF8
 }
 
@@ -1045,7 +1065,7 @@ function Load-LauncherOptions {
         }
     }
     catch {
-        $lblAction.Text = "No se pudo leer launcher-settings.json; se usarán valores predeterminados."
+        $lblAction.Text = T "config.options_read_error"
     }
     }
     finally {
@@ -1119,11 +1139,11 @@ function Save-Settings {
         Save-LauncherOptions
         Reset-RestartSchedule
 
-        $lblAction.Text = "Configuración guardada: " + (Get-Date -Format "HH:mm:ss")
-        Show-Message "Configuración guardada. Reiniciá el servidor para aplicar cambios del juego."
+        $lblAction.Text = T "config.saved_status" @((Get-Date -Format "HH:mm:ss"))
+        Show-Message (T "config.saved_msg")
     }
     catch {
-        Show-Message $_.Exception.Message "Error al guardar" "Error"
+        Show-Message $_.Exception.Message (T "config.save_error_title") "Error"
     }
 }
 
@@ -1136,7 +1156,7 @@ function Load-Settings {
             $text = Get-IniText
         }
 
-        $txtName.Text = Get-IniValue $text "ServerName" "Mi servidor Palworld"
+        $txtName.Text = Get-IniValue $text "ServerName" (T "default.server_name")
         $txtDescription.Text = Get-IniValue $text "ServerDescription" ""
         $txtPassword.Text = Get-IniValue $text "ServerPassword" ""
         $txtAdmin.Text = Get-IniValue $text "AdminPassword" ""
@@ -1176,7 +1196,7 @@ function Load-Settings {
         $chkPvP.Checked = (Get-IniValue $text "bIsPvP" "False") -eq "True"
     }
     catch {
-        Show-Message $_.Exception.Message "Error al leer configuración" "Error"
+        Show-Message $_.Exception.Message (T "config.read_error_title") "Error"
     }
 
     # Las opciones del launcher se cargan SIEMPRE, aunque el INI del server
@@ -1220,7 +1240,7 @@ function Backup-World([bool]$SkipRetention = $false) {
     }
 
     $script:LastBackupAt = Get-Date
-    Write-Activity "Backup creado: $([IO.Path]::GetFileName($destination))"
+    Write-Activity (T "activity.backup_created" @([IO.Path]::GetFileName($destination)))
 
     # El backup de seguridad previo a una restauracion NO aplica retencion:
     # la retencion podria borrar justo el zip que se esta por restaurar.
@@ -1234,14 +1254,12 @@ function Backup-World([bool]$SkipRetention = $false) {
 function Start-Server {
     try {
         $existing = Get-ServerProcess
-        if ($existing) { Show-Message "El servidor ya está ejecutándose. PID: $($existing.Id)"; Update-Status; return }
-        if (-not (Test-Path -LiteralPath $ServerExe)) { Show-Message "No se encontró:`n$ServerExe" "Error al iniciar" "Error"; return }
+        if ($existing) { Show-Message (T "server.already_running" @($existing.Id)); Update-Status; return }
+        if (-not (Test-Path -LiteralPath $ServerExe)) { Show-Message (T "server.exe_missing" @($ServerExe)) (T "server.start_error_title") "Error"; return }
         if ((Get-UnidentifiedPalServerCount) -gt 0) {
             $confirmStart = [Windows.Forms.MessageBox]::Show(
-                "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación.`n`n" +
-                "Si en realidad es el server de ESTA carpeta (iniciado por fuera del launcher o elevado), " +
-                "iniciar un segundo proceso puede corromper el mundo.`n`n¿Iniciar de todos modos?",
-                "Iniciar servidor",
+                (T "server.unidentified_start"),
+                (T "server.unidentified_start_title"),
                 [Windows.Forms.MessageBoxButtons]::YesNo,
                 [Windows.Forms.MessageBoxIcon]::Warning
             )
@@ -1280,20 +1298,23 @@ function Start-Server {
         $psi.UseShellExecute = $true
         $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
         $proc = [System.Diagnostics.Process]::Start($psi)
-        if ($null -eq $proc) { throw "Windows no devolvió el proceso iniciador." }
-        $lblAction.Text = "Iniciando servidor y captura de logs..."
-        Write-Activity "Inicio del servidor solicitado."
+        if ($null -eq $proc) { throw (T "server.wrapper_error") }
+        $lblAction.Text = T "server.starting"
+        Write-Activity (T "server.start_requested_activity")
         Start-Sleep -Seconds 4
-        if (-not (Get-ServerProcess)) { throw "PalServer se abrió, pero el proceso no quedó ejecutándose." }
+        if (-not (Get-ServerProcess)) { throw (T "server.not_alive") }
         $script:NextRestartAt=$null; $script:ScheduleSignature=""; $script:AnnouncedMinutes.Clear(); $script:LastServerInfo=$null
         Update-Status; Update-RestartSchedule
-    } catch { Show-Message ("No se pudo iniciar PalServer:`n`n"+$_.Exception.Message) "Error al iniciar" "Error"; Update-Status }
+    } catch { Show-Message (T "server.start_failed" @($_.Exception.Message)) (T "server.start_error_title") "Error"; Update-Status }
 }
 
 function Stop-Server(
     [bool]$RestartAfter = $false,
-    [string]$ShutdownMessage = "El servidor se está reiniciando."
+    [string]$ShutdownMessage = ""
 ) {
+    if ([string]::IsNullOrWhiteSpace($ShutdownMessage)) {
+        $ShutdownMessage = TS "game.shutting_down"
+    }
     $process = Get-ServerProcess
 
     if (-not $process) {
@@ -1304,7 +1325,7 @@ function Stop-Server(
         return
     }
 
-    $lblStatus.Text = "Estado: guardando y deteniendo..."
+    $lblStatus.Text = T "panel.status_stopping"
     $form.Refresh()
 
     $gracefulRequested = $false
@@ -1325,7 +1346,7 @@ function Stop-Server(
         $gracefulRequested = $true
     }
     catch {
-        $lblAction.Text = "REST API no respondió; se usará cierre forzado de respaldo."
+        $lblAction.Text = T "server.rest_no_response"
     }
 
     $deadline = (Get-Date).AddSeconds(25)
@@ -1353,7 +1374,7 @@ function Stop-Server(
     $script:ServerPid = $null
 
     Update-Status
-    Write-Activity "Servidor detenido."
+    Write-Activity (T "server.stopped_activity")
 
     if ($RestartAfter) {
         Start-Sleep -Seconds 3
@@ -1376,25 +1397,25 @@ function Restart-Server([bool]$Automatic = $false) {
             }
             catch {}
 
-            $lblAction.Text = "Creando backup antes de reiniciar..."
+            $lblAction.Text = T "backups.creating"
             $form.Refresh()
 
             try {
                 $backup = Backup-World
                 if ($backup) {
-                    $lblAction.Text = "Backup creado: " + [IO.Path]::GetFileName($backup)
+                    $lblAction.Text = T "backups.created_status" @([IO.Path]::GetFileName($backup))
                 }
             }
             catch {
-                $lblAction.Text = "No se pudo crear el backup: " + $_.Exception.Message
+                $lblAction.Text = T "backups.create_failed" @($_.Exception.Message)
             }
         }
 
         if ($Automatic) {
-            Send-Announcement "El servidor se reinicia ahora." | Out-Null
+            Send-Announcement (TS "game.restart_now") | Out-Null
         }
 
-        Stop-Server -RestartAfter $true -ShutdownMessage "El servidor se está reiniciando."
+        Stop-Server -RestartAfter $true -ShutdownMessage (TS "game.shutting_down")
     }
     finally {
         $script:RestartInProgress = $false
@@ -1410,7 +1431,7 @@ function Install-SteamCmd {
 
     $zipPath = Join-Path $env:TEMP ("steamcmd_" + [guid]::NewGuid().ToString("N") + ".zip")
 
-    $lblAction.Text = "Descargando SteamCMD desde Valve..."
+    $lblAction.Text = T "update.steamcmd_downloading"
     $form.Refresh()
 
     # PS 5.1 sobre .NET Framework viejo puede no ofrecer TLS 1.2 por default
@@ -1434,16 +1455,14 @@ function Install-SteamCmd {
         Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Activity "SteamCMD instalado en $steamCmdDir."
+    Write-Activity (T "update.steamcmd_installed_activity" @($steamCmdDir))
 }
 
 function Update-Server {
     if (-not (Test-Path -LiteralPath $SteamCmdExe)) {
         $answer = [Windows.Forms.MessageBox]::Show(
-            "SteamCMD no está instalado.`n`n" +
-            "¿Descargarlo ahora desde el sitio oficial de Valve?`n`n" +
-            "Se instalará en:`n" + [IO.Path]::GetDirectoryName($SteamCmdExe),
-            "Instalar SteamCMD",
+            (T "update.steamcmd_missing" @([IO.Path]::GetDirectoryName($SteamCmdExe))),
+            (T "update.steamcmd_title"),
             [Windows.Forms.MessageBoxButtons]::YesNo,
             [Windows.Forms.MessageBoxIcon]::Question
         )
@@ -1456,7 +1475,7 @@ function Update-Server {
             Install-SteamCmd
         }
         catch {
-            Show-Message ("No se pudo instalar SteamCMD:`n`n" + $_.Exception.Message) "Instalar SteamCMD" "Error"
+            Show-Message (T "update.steamcmd_failed" @($_.Exception.Message)) (T "update.steamcmd_title") "Error"
             return
         }
     }
@@ -1465,10 +1484,8 @@ function Update-Server {
 
     if (-not $wasRunning -and (Get-UnidentifiedPalServerCount) -gt 0) {
         $confirmUpdate = [Windows.Forms.MessageBox]::Show(
-            "Hay un proceso PalServer corriendo que no se puede identificar como de esta instalación.`n`n" +
-            "Si ese proceso usa los archivos de ESTE server, la actualización puede fallar o dejarlo inconsistente.`n`n" +
-            "¿Continuar de todos modos?",
-            "Actualizar servidor",
+            (T "update.unidentified"),
+            (T "update.unidentified_title"),
             [Windows.Forms.MessageBoxButtons]::YesNo,
             [Windows.Forms.MessageBoxIcon]::Warning
         )
@@ -1479,7 +1496,7 @@ function Update-Server {
         Stop-Server
     }
 
-    $lblStatus.Text = "Estado: actualizando servidor..."
+    $lblStatus.Text = T "panel.status_updating"
     $form.Refresh()
 
     $arguments = "+force_install_dir `"$ServerDir`" +login anonymous +app_update 2394010 validate +quit"
@@ -1492,14 +1509,14 @@ function Update-Server {
         -WindowStyle Hidden
 
     if ($process.ExitCode -ne 0) {
-        Show-Message "SteamCMD terminó con código $($process.ExitCode)." "Error" "Error"
+        Show-Message (T "update.steamcmd_exit" @($process.ExitCode)) (T "update.error_title") "Error"
     }
     elseif ($wasRunning) {
         Start-Server
     }
 
     $script:LastServerInfo = $null
-    $lblVersion.Text = "Servidor: " + (Get-ServerVersion)
+    $lblVersion.Text = T "panel.server_version" @((Get-ServerVersion))
     Update-Status
 }
 
@@ -1509,7 +1526,7 @@ function Get-ServerVersion {
     }
 
     if (-not (Test-Path -LiteralPath $ServerExe)) {
-        return "no instalado (usá ACTUALIZAR)"
+        return (T "panel.version_not_installed")
     }
 
     try {
@@ -1552,7 +1569,7 @@ function Get-ServerVersion {
     }
     catch {}
 
-    return "Esperando API"
+    return (T "panel.version_waiting")
 }
 
 function Get-ScheduleSignature {
@@ -1633,7 +1650,7 @@ function Update-RestartSchedule {
     }
 
     if ($null -eq $script:NextRestartAt) {
-        $lblNextRestart.Text = "Próximo reinicio: desactivado"
+        $lblNextRestart.Text = T "schedule.next_disabled"
         $btnCancelRestart.Enabled = $false
         return
     }
@@ -1641,7 +1658,7 @@ function Update-RestartSchedule {
     $remaining = $script:NextRestartAt - (Get-Date)
 
     if ($remaining.TotalSeconds -le 0) {
-        $lblNextRestart.Text = "Reinicio programado en curso..."
+        $lblNextRestart.Text = T "schedule.in_progress"
         $btnCancelRestart.Enabled = $false
         Restart-Server -Automatic $true
         return
@@ -1653,13 +1670,7 @@ function Update-RestartSchedule {
     $minutes = $remaining.Minutes
     $seconds = $remaining.Seconds
 
-    $lblNextRestart.Text = (
-        "Próximo reinicio: {0:dd/MM/yyyy HH:mm}  |  Faltan {1:00}:{2:00}:{3:00}" -f
-        $script:NextRestartAt,
-        $hours,
-        $minutes,
-        $seconds
-    )
+    $lblNextRestart.Text = T "schedule.next" @($script:NextRestartAt, $hours, $minutes, $seconds)
 
     $warningThresholds = @(25,15,10,9,8,7,6,5,4,3,2,1)
 
@@ -1669,10 +1680,10 @@ function Update-RestartSchedule {
             -not $script:AnnouncedMinutes.Contains($threshold)
         ) {
             $message = if ($threshold -eq 1) {
-                "El servidor se reiniciará en 1 minuto."
+                TS "game.restart_one_minute"
             }
             else {
-                "El servidor se reiniciará en $threshold minutos."
+                TS "game.restart_minutes" @($threshold)
             }
 
             Send-Announcement $message | Out-Null
@@ -1684,7 +1695,7 @@ function Update-RestartSchedule {
 
 function Cancel-ScheduledRestart {
     if ($null -eq $script:NextRestartAt) {
-        Show-Message "No hay un reinicio programado activo."
+        Show-Message (T "schedule.no_active")
         return
     }
 
@@ -1704,13 +1715,13 @@ function Cancel-ScheduledRestart {
 
     $script:AnnouncedMinutes.Clear()
 
-    Send-Announcement "El reinicio programado fue cancelado." | Out-Null
+    Send-Announcement (TS "game.restart_cancelled") | Out-Null
 
     if ($null -ne $script:NextRestartAt) {
-        $lblAction.Text = "Reinicio cancelado. Próximo: " + $script:NextRestartAt.ToString("dd/MM/yyyy HH:mm")
+        $lblAction.Text = T "schedule.cancelled_next" @($script:NextRestartAt)
     }
     else {
-        $lblAction.Text = "Reinicio programado cancelado."
+        $lblAction.Text = T "schedule.cancelled"
     }
 
     Update-RestartSchedule
@@ -1856,7 +1867,7 @@ function Collect-MetricsJob {
 }
 
 function Test-RestApi {
-    $lblAction.Text = "Probando REST API..."
+    $lblAction.Text = T "apitest.testing"
     Start-MetricsWorker
 
     $deadline = (Get-Date).AddSeconds(8)
@@ -1873,19 +1884,10 @@ function Test-RestApi {
     Collect-MetricsJob
 
     if ($script:LastMetrics) {
-        Show-Message (
-            "REST API conectada correctamente.`n`n" +
-            "FPS: $($script:LastMetrics.serverfps)`n" +
-            "Jugadores: $($script:LastMetrics.currentplayernum)/$($script:LastMetrics.maxplayernum)`n" +
-            "Versión: $($script:LastServerInfo.version)"
-        )
+        Show-Message (T "apitest.ok" @($script:LastMetrics.serverfps, $script:LastMetrics.currentplayernum, $script:LastMetrics.maxplayernum, $script:LastServerInfo.version))
     }
     else {
-        Show-Message (
-            "La REST API no respondió correctamente.`n`n" +
-            $script:LastMetricsError +
-            "`n`nVerificá la Clave admin/API, guardá la configuración y reiniciá PalServer."
-        ) "Diagnóstico REST API" "Warning"
+        Show-Message (T "apitest.failed" @($script:LastMetricsError)) (T "apitest.title") "Warning"
     }
 }
 
@@ -1893,7 +1895,7 @@ function Test-RestApi {
 
 function Append-ChatLine([string]$Timestamp,[string]$Author,[string]$Message,[bool]$IsServer=$false) {
     if (-not $rtbChat) { return }
-    $line = if ($IsServer) { "[${Timestamp}] SERVIDOR: $Message" } else { "[${Timestamp}] ${Author}: $Message" }
+    $line = if ($IsServer) { "[${Timestamp}] $(T 'chat.server_author'): $Message" } else { "[${Timestamp}] ${Author}: $Message" }
     $rtbChat.AppendText($line+[Environment]::NewLine); $rtbChat.SelectionStart=$rtbChat.TextLength; $rtbChat.ScrollToCaret()
     Add-Content -LiteralPath $ChatHistoryFile -Value $line -Encoding UTF8
 }
@@ -1918,17 +1920,17 @@ function Read-NewServerLogLines {
                     # Linea de chat con formato distinto al esperado: mostrarla
                     # cruda igual (sirve para ajustar el parser con datos reales).
                     $script:LastChatLineKey=$line
-                    Append-ChatLine (Get-Date -Format 'HH:mm:ss') 'CHAT' $line
+                    Append-ChatLine (Get-Date -Format 'HH:mm:ss') (T 'chat.raw_author') $line
                 }
             }
             $script:LogPosition=$fs.Position; $sr.Dispose()
         } finally { $fs.Dispose() }
-    } catch { $lblAction.Text='No se pudo leer el log: '+$_.Exception.Message }
+    } catch { $lblAction.Text=(T 'chat.log_read_error' @($_.Exception.Message)) }
 }
 function Send-ServerChat {
     $message=$txtChatMessage.Text.Trim(); if ([string]::IsNullOrWhiteSpace($message)) { return }
-    if (Send-Announcement $message) { Append-ChatLine (Get-Date -Format 'HH:mm:ss') 'SERVIDOR' $message $true; $txtChatMessage.Clear() }
-    else { Show-Message 'No se pudo enviar el mensaje. Revisá REST API y clave admin.' 'Chat' 'Warning' }
+    if (Send-Announcement $message) { Append-ChatLine (Get-Date -Format 'HH:mm:ss') (T 'chat.server_author') $message $true; $txtChatMessage.Clear() }
+    else { Show-Message (T 'chat.send_failed') (T 'chat.title') 'Warning' }
 }
 function Load-ChatHistory { if ($rtbChat -and (Test-Path -LiteralPath $ChatHistoryFile)) { try { $rtbChat.Lines=Get-Content -LiteralPath $ChatHistoryFile -Tail 1000; $rtbChat.SelectionStart=$rtbChat.TextLength; $rtbChat.ScrollToCaret() } catch {} } }
 function Refresh-BackupsList {
@@ -1940,10 +1942,10 @@ function Refresh-BackupsList {
 function Start-PlayersJob {
     if ($script:PlayersJob) {
         if ($script:PlayersJob.State -in @('Running','NotStarted')) { return }
-        try { $r=Receive-Job $script:PlayersJob -ErrorAction SilentlyContinue|Select-Object -Last 1; if ($r.Success) { $listPlayers.Items.Clear(); foreach($pl in @($r.Players)) { $i=New-Object Windows.Forms.ListViewItem([string]$pl.name); [void]$i.SubItems.Add([string]$pl.level); [void]$i.SubItems.Add([string]$pl.ping); [void]$i.SubItems.Add([string]$pl.accountName); [void]$i.SubItems.Add([string]$pl.userId); [void]$listPlayers.Items.Add($i) }; $lblPlayersStatus.Text='Jugadores conectados: '+@($r.Players).Count } else { $lblPlayersStatus.Text='Error: '+$r.Error } } catch { $lblPlayersStatus.Text='Error: '+$_.Exception.Message }
+        try { $r=Receive-Job $script:PlayersJob -ErrorAction SilentlyContinue|Select-Object -Last 1; if ($r.Success) { $listPlayers.Items.Clear(); foreach($pl in @($r.Players)) { $i=New-Object Windows.Forms.ListViewItem([string]$pl.name); [void]$i.SubItems.Add([string]$pl.level); [void]$i.SubItems.Add([string]$pl.ping); [void]$i.SubItems.Add([string]$pl.accountName); [void]$i.SubItems.Add([string]$pl.userId); [void]$listPlayers.Items.Add($i) }; $lblPlayersStatus.Text=(T 'players.count' @(@($r.Players).Count)) } else { $lblPlayersStatus.Text=(T 'players.error' @($r.Error)) } } catch { $lblPlayersStatus.Text=(T 'players.error' @($_.Exception.Message)) }
         Remove-Job $script:PlayersJob -Force -ErrorAction SilentlyContinue; $script:PlayersJob=$null
     }
-    if (-not (Get-ServerProcess)) { $lblPlayersStatus.Text='Servidor detenido.'; return }
+    if (-not (Get-ServerProcess)) { $lblPlayersStatus.Text=(T 'players.stopped'); return }
     $pw=$txtAdmin.Text; $port=[int]$numApiPort.Value
     $script:PlayersJob=Start-Job -ArgumentList $pw,$port -ScriptBlock { param($Password,$Port) try { $cred='admin:'+$Password; $enc=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($cred)); $resp=Invoke-RestMethod -Uri "http://127.0.0.1:$Port/v1/api/players" -Headers @{Authorization="Basic $enc"} -TimeoutSec 3 -UseBasicParsing; $pls=if($resp.players){@($resp.players)}else{@($resp)}; [pscustomobject]@{Success=$true;Players=$pls;Error=''} } catch { [pscustomobject]@{Success=$false;Players=@();Error=$_.Exception.Message} } }
 }
@@ -1952,18 +1954,18 @@ function Update-Status {
     $process = Get-ServerProcess
 
     if (-not $process) {
-        $lblStatus.Text = "Estado: DETENIDO"
+        $lblStatus.Text = T "panel.status_stopped"
         $lblStatus.ForeColor = [Drawing.Color]::DarkRed
-        $lblMetrics.Text = "FPS: --   Jugadores: --   Frame: -- ms   RAM: --   CPU: --"
-        $lblQuality.Text = "Rendimiento: --"
-        $lblUptime.Text = "Tiempo encendido: --"
+        $lblMetrics.Text = T "panel.metrics_empty"
+        $lblQuality.Text = T "panel.quality_none"
+        $lblUptime.Text = T "panel.uptime_empty"
         $script:LastCpuTime = $null
         $script:LastCpuAt = $null
         $script:LastMetrics = $null
         return
     }
 
-    $lblStatus.Text = "Estado: ONLINE | PID $($process.Id)"
+    $lblStatus.Text = T "panel.status_online" @($process.Id)
     $lblStatus.ForeColor = [Drawing.Color]::DarkGreen
 
     $ram = [math]::Round($process.WorkingSet64 / 1GB, 2)
@@ -1992,7 +1994,7 @@ function Update-Status {
     }
     catch {}
 
-    $lblUptime.Text = "Tiempo encendido: " + ((Get-Date)-$process.StartTime).ToString("dd\.hh\:mm\:ss")
+    $lblUptime.Text = T "panel.uptime" @(((Get-Date)-$process.StartTime).ToString("dd\.hh\:mm\:ss"))
 
     $fps = "--"
     $players = "--"
@@ -2005,37 +2007,37 @@ function Update-Status {
             $frame = [math]::Round([double]$script:LastMetrics.serverframetime,1)
 
             if ([int]$fps -ge 55) {
-                $lblQuality.Text = "Rendimiento: EXCELENTE"
+                $lblQuality.Text = T "panel.quality_excellent"
             }
             elseif ([int]$fps -ge 40) {
-                $lblQuality.Text = "Rendimiento: BUENO"
+                $lblQuality.Text = T "panel.quality_good"
             }
             elseif ([int]$fps -ge 30) {
-                $lblQuality.Text = "Rendimiento: ACEPTABLE"
+                $lblQuality.Text = T "panel.quality_acceptable"
             }
             else {
-                $lblQuality.Text = "Rendimiento: BAJO"
+                $lblQuality.Text = T "panel.quality_low"
             }
         }
         catch {
-            $lblQuality.Text = "Métricas recibidas con formato inesperado"
+            $lblQuality.Text = T "panel.quality_unexpected"
         }
     }
     else {
         if ($script:LastMetricsError) {
-            $lblQuality.Text = "REST API: " + $script:LastMetricsError
+            $lblQuality.Text = T "panel.quality_rest_error" @($script:LastMetricsError)
         }
         else {
-            $lblQuality.Text = "Esperando REST API..."
+            $lblQuality.Text = T "panel.quality_waiting"
         }
     }
 
-    $lblMetrics.Text = "FPS: $fps   Jugadores: $players   Frame: $frame ms   RAM: $ram GB   CPU: $cpuText"
-    $lblVersion.Text = "Servidor: " + (Get-ServerVersion)
+    $lblMetrics.Text = T "panel.metrics" @($fps, $players, $frame, $ram, $cpuText)
+    $lblVersion.Text = T "panel.server_version" @((Get-ServerVersion))
 }
 
 $form = New-Object Windows.Forms.Form
-$form.Text = "Palworld Server Manager v8 - Chat y gestión"
+$form.Text = $ProductInfo.product + " — v" + $ProductInfo.version
 $form.Size = New-Object Drawing.Size(1100,900)
 $form.StartPosition = "CenterScreen"
 $form.Font = New-Object Drawing.Font("Segoe UI",10)
@@ -2043,14 +2045,14 @@ $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $false
 
 $title = New-Object Windows.Forms.Label
-$title.Text = "PALWORLD DEDICATED SERVER"
+$title.Text = "FIREBRAND PALWORLD SERVER LAUNCHER"
 $title.Font = New-Object Drawing.Font("Segoe UI",18,[Drawing.FontStyle]::Bold)
 $title.AutoSize = $true
 $title.Location = New-Object Drawing.Point(25,15)
 $form.Controls.Add($title)
 
 $lblVersion = New-Object Windows.Forms.Label
-$lblVersion.Text = "Servidor: " + (Get-ServerVersion)
+$lblVersion.Text = T "panel.server_version" @((Get-ServerVersion))
 $lblVersion.AutoSize = $true
 $lblVersion.Location = New-Object Drawing.Point(710,25)
 $form.Controls.Add($lblVersion)
@@ -2078,7 +2080,7 @@ $lblUptime.Location = New-Object Drawing.Point(700,116)
 $form.Controls.Add($lblUptime)
 
 $lblClock = New-Object Windows.Forms.Label
-$lblClock.Text = "Hora: --:--:--"
+$lblClock.Text = T "panel.clock_empty"
 $lblClock.Font = New-Object Drawing.Font("Segoe UI",11,[Drawing.FontStyle]::Bold)
 $lblClock.AutoSize = $true
 $lblClock.Location = New-Object Drawing.Point(870,116)
@@ -2094,35 +2096,32 @@ function Add-MainButton($Text,$X,$Width,$Handler) {
     return $button
 }
 
-Add-MainButton "INICIAR" 25 135 { Start-Server } | Out-Null
-Add-MainButton "DETENER" 170 135 { Stop-Server } | Out-Null
-Add-MainButton "REINICIAR AHORA" 315 150 { Restart-Server } | Out-Null
-Add-MainButton "ACTUALIZAR" 475 135 { Update-Server } | Out-Null
-Add-MainButton "BACKUP" 620 135 {
+Add-MainButton (T "panel.btn_start") 25 135 { Start-Server } | Out-Null
+Add-MainButton (T "panel.btn_stop") 170 135 { Stop-Server } | Out-Null
+Add-MainButton (T "panel.btn_restart") 315 150 { Restart-Server } | Out-Null
+Add-MainButton (T "panel.btn_update") 475 135 { Update-Server } | Out-Null
+Add-MainButton (T "panel.btn_backup") 620 135 {
     try {
         $backup = Backup-World
         if ($backup) {
-            Show-Message "Backup creado:`n$backup"
+            Show-Message (T "backups.created" @($backup))
         }
     }
     catch {
-        Show-Message $_.Exception.Message "Error" "Error"
+        Show-Message $_.Exception.Message (T "update.error_title") "Error"
     }
 } | Out-Null
-Add-MainButton "CARPETA SERVER" 765 170 {
+Add-MainButton (T "panel.btn_server_folder") 765 170 {
     if (Test-Path -LiteralPath $ServerDir) {
         Start-Process explorer.exe $ServerDir
     }
     else {
-        Show-Message (
-            "El servidor todavía no está instalado en:`n$ServerDir`n`n" +
-            "Usá el botón ACTUALIZAR para instalarlo."
-        ) "Carpeta del servidor"
+        Show-Message (T "server.folder_missing" @($ServerDir)) (T "server.folder_title")
     }
 } | Out-Null
 
 $group = New-Object Windows.Forms.GroupBox
-$group.Text = "Configuración del servidor"
+$group.Text = T "config.group"
 $group.Location = New-Object Drawing.Point(25,205)
 $group.Size = New-Object Drawing.Size(920,390)
 $form.Controls.Add($group)
@@ -2156,49 +2155,49 @@ function Add-Number($X,$Y,$Min,$Max,$Decimals=0,$Increment=1) {
     return $number
 }
 
-Add-Label "Nombre" 18 35
+Add-Label (T "config.name") 18 35
 $txtName = Add-TextBox 160 31 725
 
-Add-Label "Descripción" 18 70
+Add-Label (T "config.description") 18 70
 $txtDescription = Add-TextBox 160 66 725
 
-Add-Label "Clave jugadores" 18 105
+Add-Label (T "config.player_password") 18 105
 $txtPassword = Add-TextBox 160 101 250 $true
 
-Add-Label "Clave admin/API" 475 105
+Add-Label (T "config.admin_password") 475 105
 $txtAdmin = Add-TextBox 610 101 275 $true
 
-Add-Label "Máx. jugadores" 18 140
+Add-Label (T "config.max_players") 18 140
 $numPlayers = Add-Number 160 136 1 128
 
-Add-Label "Puerto juego UDP" 475 140
+Add-Label (T "config.game_port") 475 140
 $numPort = Add-Number 610 136 1 65535
 
-Add-Label "Puerto REST local" 18 175
+Add-Label (T "config.api_port") 18 175
 $numApiPort = Add-Number 160 171 1 65535
 
-Add-Label "Workers CPU" 475 175
+Add-Label (T "config.workers") 475 175
 $numWorkers = Add-Number 610 171 1 16
 
 $chkLegacyPerfArgs = New-Object Windows.Forms.CheckBox
-$chkLegacyPerfArgs.Text = "Usar parámetros de rendimiento antiguos"
+$chkLegacyPerfArgs.Text = T "config.legacy_args"
 $chkLegacyPerfArgs.Location = New-Object Drawing.Point(735,172)
 $chkLegacyPerfArgs.AutoSize = $true
 $group.Controls.Add($chkLegacyPerfArgs)
 
-Add-Label "EXP" 18 210
+Add-Label (T "config.exp") 18 210
 $numExp = Add-Number 160 206 0.1 20 1 0.1
 
-Add-Label "Captura" 475 210
+Add-Label (T "config.capture") 475 210
 $numCapture = Add-Number 610 206 0.1 20 1 0.1
 
-Add-Label "Cantidad de Pals" 18 245
+Add-Label (T "config.spawn") 18 245
 $numSpawn = Add-Number 160 241 0.1 10 1 0.1
 
-Add-Label "Incubación (horas)" 475 245
+Add-Label (T "config.egg") 475 245
 $numEgg = Add-Number 610 241 0 240 1 0.5
 
-Add-Label "Penalidad al morir" 18 280
+Add-Label (T "config.death") 18 280
 $cmbDeath = New-Object Windows.Forms.ComboBox
 $cmbDeath.Location = New-Object Drawing.Point(160,276)
 $cmbDeath.Size = New-Object Drawing.Size(250,25)
@@ -2207,32 +2206,32 @@ $cmbDeath.DropDownStyle = "DropDownList"
 $group.Controls.Add($cmbDeath)
 
 $chkPvP = New-Object Windows.Forms.CheckBox
-$chkPvP.Text = "PvP"
+$chkPvP.Text = T "config.pvp"
 $chkPvP.Location = New-Object Drawing.Point(20,320)
 $chkPvP.AutoSize = $true
 $group.Controls.Add($chkPvP)
 
 $chkPublicLobby = New-Object Windows.Forms.CheckBox
-$chkPublicLobby.Text = "Servidor comunitario / Xbox (-publiclobby)"
+$chkPublicLobby.Text = T "config.public_lobby"
 $chkPublicLobby.Location = New-Object Drawing.Point(120,320)
 $chkPublicLobby.AutoSize = $true
 $group.Controls.Add($chkPublicLobby)
 
 $chkAutoBackup = New-Object Windows.Forms.CheckBox
-$chkAutoBackup.Text = "Backup antes de reiniciar"
+$chkAutoBackup.Text = T "config.auto_backup"
 $chkAutoBackup.Location = New-Object Drawing.Point(490,320)
 $chkAutoBackup.AutoSize = $true
 $group.Controls.Add($chkAutoBackup)
 
 $btnSave = New-Object Windows.Forms.Button
-$btnSave.Text = "GUARDAR CONFIGURACIÓN"
+$btnSave.Text = T "config.btn_save"
 $btnSave.Location = New-Object Drawing.Point(20,345)
 $btnSave.Size = New-Object Drawing.Size(245,35)
 $btnSave.Add_Click({ Save-Settings })
 $group.Controls.Add($btnSave)
 
 $btnIni = New-Object Windows.Forms.Button
-$btnIni.Text = "ABRIR INI"
+$btnIni.Text = T "config.btn_open_ini"
 $btnIni.Location = New-Object Drawing.Point(280,345)
 $btnIni.Size = New-Object Drawing.Size(145,35)
 $btnIni.Add_Click({
@@ -2241,13 +2240,13 @@ $btnIni.Add_Click({
         Start-Process notepad.exe $ConfigFile
     }
     catch {
-        Show-Message ("No se pudo abrir el INI:`n" + $_.Exception.Message) "Abrir INI" "Error"
+        Show-Message (T "config.ini_open_error" @($_.Exception.Message)) (T "config.ini_open_title") "Error"
     }
 })
 $group.Controls.Add($btnIni)
 
 $btnBackups = New-Object Windows.Forms.Button
-$btnBackups.Text = "CARPETA BACKUPS"
+$btnBackups.Text = T "config.btn_backups_folder"
 $btnBackups.Location = New-Object Drawing.Point(440,345)
 $btnBackups.Size = New-Object Drawing.Size(180,35)
 $btnBackups.Add_Click({
@@ -2256,19 +2255,19 @@ $btnBackups.Add_Click({
         Start-Process explorer.exe $BackupDir
     }
     catch {
-        Show-Message ("No se pudo abrir la carpeta de backups:`n" + $_.Exception.Message) "Backups" "Error"
+        Show-Message (T "backups.folder_error" @($_.Exception.Message)) (T "backups.title") "Error"
     }
 })
 $group.Controls.Add($btnBackups)
 
 $scheduleGroup = New-Object Windows.Forms.GroupBox
-$scheduleGroup.Text = "Reinicio automático y avisos a jugadores"
+$scheduleGroup.Text = T "schedule.group"
 $scheduleGroup.Location = New-Object Drawing.Point(25,610)
 $scheduleGroup.Size = New-Object Drawing.Size(920,150)
 $form.Controls.Add($scheduleGroup)
 
 $scheduleModeLabel = New-Object Windows.Forms.Label
-$scheduleModeLabel.Text = "Modo"
+$scheduleModeLabel.Text = T "schedule.mode"
 $scheduleModeLabel.AutoSize = $true
 $scheduleModeLabel.Location = New-Object Drawing.Point(20,32)
 $scheduleGroup.Controls.Add($scheduleModeLabel)
@@ -2277,16 +2276,17 @@ $cmbRestartMode = New-Object Windows.Forms.ComboBox
 $cmbRestartMode.Location = New-Object Drawing.Point(80,28)
 $cmbRestartMode.Size = New-Object Drawing.Size(210,25)
 $cmbRestartMode.DropDownStyle = "DropDownList"
+# El ORDEN de los items corresponde 1 a 1 con $RestartModeKeys (disabled/interval/daily)
 [void]$cmbRestartMode.Items.AddRange(@(
-    "Desactivado",
-    "Cada ciertas horas",
-    "Hora fija diaria"
+    (T "schedule.mode_disabled"),
+    (T "schedule.mode_interval"),
+    (T "schedule.mode_daily")
 ))
 $cmbRestartMode.SelectedIndex = 0
 $scheduleGroup.Controls.Add($cmbRestartMode)
 
 $hoursLabel = New-Object Windows.Forms.Label
-$hoursLabel.Text = "Cada"
+$hoursLabel.Text = T "schedule.every"
 $hoursLabel.AutoSize = $true
 $hoursLabel.Location = New-Object Drawing.Point(320,32)
 $scheduleGroup.Controls.Add($hoursLabel)
@@ -2300,13 +2300,13 @@ $numAutoRestart.Value = 12
 $scheduleGroup.Controls.Add($numAutoRestart)
 
 $hoursSuffix = New-Object Windows.Forms.Label
-$hoursSuffix.Text = "horas"
+$hoursSuffix.Text = T "schedule.hours"
 $hoursSuffix.AutoSize = $true
 $hoursSuffix.Location = New-Object Drawing.Point(445,32)
 $scheduleGroup.Controls.Add($hoursSuffix)
 
 $timeLabel = New-Object Windows.Forms.Label
-$timeLabel.Text = "Hora diaria"
+$timeLabel.Text = T "schedule.daily_time"
 $timeLabel.AutoSize = $true
 $timeLabel.Location = New-Object Drawing.Point(535,32)
 $scheduleGroup.Controls.Add($timeLabel)
@@ -2320,25 +2320,25 @@ $timeRestart.Value = [datetime]::Today.AddHours(6)
 $scheduleGroup.Controls.Add($timeRestart)
 
 $btnApplySchedule = New-Object Windows.Forms.Button
-$btnApplySchedule.Text = "APLICAR HORARIO"
+$btnApplySchedule.Text = T "schedule.btn_apply"
 $btnApplySchedule.Location = New-Object Drawing.Point(735,25)
 $btnApplySchedule.Size = New-Object Drawing.Size(160,32)
 $btnApplySchedule.Add_Click({
     Save-LauncherOptions
     Reset-RestartSchedule
-    $lblAction.Text = "Horario de reinicio aplicado."
+    $lblAction.Text = T "schedule.applied"
 })
 $scheduleGroup.Controls.Add($btnApplySchedule)
 
 $lblNextRestart = New-Object Windows.Forms.Label
-$lblNextRestart.Text = "Próximo reinicio: desactivado"
+$lblNextRestart.Text = T "schedule.next_disabled"
 $lblNextRestart.Font = New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
 $lblNextRestart.AutoSize = $true
 $lblNextRestart.Location = New-Object Drawing.Point(20,78)
 $scheduleGroup.Controls.Add($lblNextRestart)
 
 $btnCancelRestart = New-Object Windows.Forms.Button
-$btnCancelRestart.Text = "CANCELAR PRÓXIMO REINICIO"
+$btnCancelRestart.Text = T "schedule.btn_cancel"
 $btnCancelRestart.Location = New-Object Drawing.Point(650,70)
 $btnCancelRestart.Size = New-Object Drawing.Size(245,38)
 $btnCancelRestart.Enabled = $false
@@ -2346,26 +2346,26 @@ $btnCancelRestart.Add_Click({ Cancel-ScheduledRestart })
 $scheduleGroup.Controls.Add($btnCancelRestart)
 
 $warningLabel = New-Object Windows.Forms.Label
-$warningLabel.Text = "Avisos automáticos: 25, 15 y 10 minutos; después 9, 8, 7... hasta 1 minuto."
+$warningLabel.Text = T "schedule.warnings_note"
 $warningLabel.AutoSize = $true
 $warningLabel.Location = New-Object Drawing.Point(20,115)
 $scheduleGroup.Controls.Add($warningLabel)
 
 $btnTestApi = New-Object Windows.Forms.Button
-$btnTestApi.Text = "PROBAR REST API"
+$btnTestApi.Text = T "schedule.btn_test_api"
 $btnTestApi.Location = New-Object Drawing.Point(735,108)
 $btnTestApi.Size = New-Object Drawing.Size(160,30)
 $btnTestApi.Add_Click({ Test-RestApi })
 $scheduleGroup.Controls.Add($btnTestApi)
 
 $lblAction = New-Object Windows.Forms.Label
-$lblAction.Text = "Listo."
+$lblAction.Text = T "panel.ready"
 $lblAction.AutoSize = $true
 $lblAction.Location = New-Object Drawing.Point(28,780)
 $form.Controls.Add($lblAction)
 
 $securityNote = New-Object Windows.Forms.Label
-$securityNote.Text = "REST API: solo local/LAN. No abras el puerto REST en Internet."
+$securityNote.Text = T "panel.security_note"
 $securityNote.AutoSize = $true
 $securityNote.Location = New-Object Drawing.Point(28,810)
 $form.Controls.Add($securityNote)
@@ -2391,77 +2391,202 @@ $timeRestart.Add_ValueChanged({
 
 $existingControls=@($form.Controls)
 $tabs=New-Object Windows.Forms.TabControl; $tabs.Location=New-Object Drawing.Point(5,5); $tabs.Size=New-Object Drawing.Size(1070,845); $tabs.Anchor='Top,Bottom,Left,Right'
-$tabPanel=New-Object Windows.Forms.TabPage; $tabPanel.Text='Panel'
-$tabChat=New-Object Windows.Forms.TabPage; $tabChat.Text='Chat'
-$tabPlayers=New-Object Windows.Forms.TabPage; $tabPlayers.Text='Jugadores'
-$tabBackups=New-Object Windows.Forms.TabPage; $tabBackups.Text='Backups'
-$tabAutomation=New-Object Windows.Forms.TabPage; $tabAutomation.Text='Automatizaciones'
-[void]$tabs.TabPages.Add($tabPanel); [void]$tabs.TabPages.Add($tabChat); [void]$tabs.TabPages.Add($tabPlayers); [void]$tabs.TabPages.Add($tabBackups); [void]$tabs.TabPages.Add($tabAutomation)
+$tabPanel=New-Object Windows.Forms.TabPage; $tabPanel.Text=(T 'tab.panel')
+$tabChat=New-Object Windows.Forms.TabPage; $tabChat.Text=(T 'tab.chat')
+$tabPlayers=New-Object Windows.Forms.TabPage; $tabPlayers.Text=(T 'tab.players')
+$tabBackups=New-Object Windows.Forms.TabPage; $tabBackups.Text=(T 'tab.backups')
+$tabAutomation=New-Object Windows.Forms.TabPage; $tabAutomation.Text=(T 'tab.automation')
+$tabAbout=New-Object Windows.Forms.TabPage; $tabAbout.Text=(T 'tab.about')
+[void]$tabs.TabPages.Add($tabPanel); [void]$tabs.TabPages.Add($tabChat); [void]$tabs.TabPages.Add($tabPlayers); [void]$tabs.TabPages.Add($tabBackups); [void]$tabs.TabPages.Add($tabAutomation); [void]$tabs.TabPages.Add($tabAbout)
 foreach($c in $existingControls){$form.Controls.Remove($c);$tabPanel.Controls.Add($c)}; $form.Controls.Add($tabs)
 $split=New-Object Windows.Forms.SplitContainer; $split.Dock='Fill'; $split.SplitterDistance=650; $tabChat.Controls.Add($split)
 $rtbChat=New-Object Windows.Forms.RichTextBox; $rtbChat.Dock='Fill'; $rtbChat.ReadOnly=$true; $rtbChat.Font=New-Object Drawing.Font('Consolas',10); $split.Panel1.Controls.Add($rtbChat)
 $bottom=New-Object Windows.Forms.Panel; $bottom.Dock='Bottom'; $bottom.Height=75; $split.Panel1.Controls.Add($bottom)
 $txtChatMessage=New-Object Windows.Forms.TextBox; $txtChatMessage.Location=New-Object Drawing.Point(10,10); $txtChatMessage.Size=New-Object Drawing.Size(500,27); $bottom.Controls.Add($txtChatMessage)
-$send=New-Object Windows.Forms.Button; $send.Text='ENVIAR COMO SERVIDOR'; $send.Location=New-Object Drawing.Point(515,8); $send.Size=New-Object Drawing.Size(125,32); $send.Add_Click({Send-ServerChat}); $bottom.Controls.Add($send)
-$hist=New-Object Windows.Forms.Button; $hist.Text='ABRIR HISTORIAL'; $hist.Location=New-Object Drawing.Point(10,42); $hist.Size=New-Object Drawing.Size(150,28); $hist.Add_Click({if(-not(Test-Path $ChatHistoryFile)){New-Item -ItemType File -Path $ChatHistoryFile -Force|Out-Null};Start-Process notepad.exe $ChatHistoryFile}); $bottom.Controls.Add($hist)
-$chatNote=New-Object Windows.Forms.Label; $chatNote.Text='Nota: el server vanilla de Palworld no siempre publica el chat de los jugadores en su salida; si no aparece nada tras reiniciar desde el launcher, hace falta un mod de logging (UE4SS).'; $chatNote.Location=New-Object Drawing.Point(170,44); $chatNote.Size=New-Object Drawing.Size(660,28); $bottom.Controls.Add($chatNote)
+$send=New-Object Windows.Forms.Button; $send.Text=(T 'chat.btn_send'); $send.Location=New-Object Drawing.Point(515,8); $send.Size=New-Object Drawing.Size(125,32); $send.Add_Click({Send-ServerChat}); $bottom.Controls.Add($send)
+$hist=New-Object Windows.Forms.Button; $hist.Text=(T 'chat.btn_history'); $hist.Location=New-Object Drawing.Point(10,42); $hist.Size=New-Object Drawing.Size(150,28); $hist.Add_Click({if(-not(Test-Path $ChatHistoryFile)){New-Item -ItemType File -Path $ChatHistoryFile -Force|Out-Null};Start-Process notepad.exe $ChatHistoryFile}); $bottom.Controls.Add($hist)
+$chatNote=New-Object Windows.Forms.Label; $chatNote.Text=(T 'chat.note'); $chatNote.Location=New-Object Drawing.Point(170,44); $chatNote.Size=New-Object Drawing.Size(660,28); $bottom.Controls.Add($chatNote)
 $txtChatMessage.Add_KeyDown({if($_.KeyCode -eq [Windows.Forms.Keys]::Enter){$_.SuppressKeyPress=$true;Send-ServerChat}})
 $rtbServerLog=New-Object Windows.Forms.RichTextBox; $rtbServerLog.Dock='Fill'; $rtbServerLog.ReadOnly=$true; $rtbServerLog.Font=New-Object Drawing.Font('Consolas',9); $rtbServerLog.BackColor=[Drawing.Color]::Black; $rtbServerLog.ForeColor=[Drawing.Color]::Gainsboro; $split.Panel2.Controls.Add($rtbServerLog)
-$lblPlayersStatus=New-Object Windows.Forms.Label; $lblPlayersStatus.Text='Esperando consulta...'; $lblPlayersStatus.Location=New-Object Drawing.Point(15,15); $lblPlayersStatus.AutoSize=$true; $tabPlayers.Controls.Add($lblPlayersStatus)
-$pr=New-Object Windows.Forms.Button; $pr.Text='ACTUALIZAR JUGADORES'; $pr.Location=New-Object Drawing.Point(820,10); $pr.Size=New-Object Drawing.Size(200,35); $pr.Add_Click({Start-PlayersJob}); $tabPlayers.Controls.Add($pr)
-$listPlayers=New-Object Windows.Forms.ListView; $listPlayers.Location=New-Object Drawing.Point(15,60); $listPlayers.Size=New-Object Drawing.Size(1010,700); $listPlayers.View='Details'; $listPlayers.FullRowSelect=$true; $listPlayers.GridLines=$true; [void]$listPlayers.Columns.Add('Jugador',220); [void]$listPlayers.Columns.Add('Nivel',80); [void]$listPlayers.Columns.Add('Ping',80); [void]$listPlayers.Columns.Add('Cuenta',220); [void]$listPlayers.Columns.Add('User ID',360); $tabPlayers.Controls.Add($listPlayers)
-$btnCopyUid=New-Object Windows.Forms.Button; $btnCopyUid.Text='COPIAR USER ID'; $btnCopyUid.Location=New-Object Drawing.Point(15,770); $btnCopyUid.Size=New-Object Drawing.Size(160,35); $btnCopyUid.Add_Click({Copy-SelectedPlayerUid}); $tabPlayers.Controls.Add($btnCopyUid)
-$btnKickPlayer=New-Object Windows.Forms.Button; $btnKickPlayer.Text='EXPULSAR'; $btnKickPlayer.Location=New-Object Drawing.Point(190,770); $btnKickPlayer.Size=New-Object Drawing.Size(140,35); $btnKickPlayer.Add_Click({Kick-SelectedPlayer}); $tabPlayers.Controls.Add($btnKickPlayer)
-$btnBanPlayer=New-Object Windows.Forms.Button; $btnBanPlayer.Text='BANEAR'; $btnBanPlayer.Location=New-Object Drawing.Point(345,770); $btnBanPlayer.Size=New-Object Drawing.Size(140,35); $btnBanPlayer.Add_Click({Ban-SelectedPlayer}); $tabPlayers.Controls.Add($btnBanPlayer)
+$lblPlayersStatus=New-Object Windows.Forms.Label; $lblPlayersStatus.Text=(T 'players.waiting'); $lblPlayersStatus.Location=New-Object Drawing.Point(15,15); $lblPlayersStatus.AutoSize=$true; $tabPlayers.Controls.Add($lblPlayersStatus)
+$pr=New-Object Windows.Forms.Button; $pr.Text=(T 'players.btn_refresh'); $pr.Location=New-Object Drawing.Point(820,10); $pr.Size=New-Object Drawing.Size(200,35); $pr.Add_Click({Start-PlayersJob}); $tabPlayers.Controls.Add($pr)
+$listPlayers=New-Object Windows.Forms.ListView; $listPlayers.Location=New-Object Drawing.Point(15,60); $listPlayers.Size=New-Object Drawing.Size(1010,700); $listPlayers.View='Details'; $listPlayers.FullRowSelect=$true; $listPlayers.GridLines=$true; [void]$listPlayers.Columns.Add((T 'players.col_player'),220); [void]$listPlayers.Columns.Add((T 'players.col_level'),80); [void]$listPlayers.Columns.Add((T 'players.col_ping'),80); [void]$listPlayers.Columns.Add((T 'players.col_account'),220); [void]$listPlayers.Columns.Add((T 'players.col_userid'),360); $tabPlayers.Controls.Add($listPlayers)
+$btnCopyUid=New-Object Windows.Forms.Button; $btnCopyUid.Text=(T 'players.btn_copy'); $btnCopyUid.Location=New-Object Drawing.Point(15,770); $btnCopyUid.Size=New-Object Drawing.Size(160,35); $btnCopyUid.Add_Click({Copy-SelectedPlayerUid}); $tabPlayers.Controls.Add($btnCopyUid)
+$btnKickPlayer=New-Object Windows.Forms.Button; $btnKickPlayer.Text=(T 'players.btn_kick'); $btnKickPlayer.Location=New-Object Drawing.Point(190,770); $btnKickPlayer.Size=New-Object Drawing.Size(140,35); $btnKickPlayer.Add_Click({Kick-SelectedPlayer}); $tabPlayers.Controls.Add($btnKickPlayer)
+$btnBanPlayer=New-Object Windows.Forms.Button; $btnBanPlayer.Text=(T 'players.btn_ban'); $btnBanPlayer.Location=New-Object Drawing.Point(345,770); $btnBanPlayer.Size=New-Object Drawing.Size(140,35); $btnBanPlayer.Add_Click({Ban-SelectedPlayer}); $tabPlayers.Controls.Add($btnBanPlayer)
 
-$nb=New-Object Windows.Forms.Button; $nb.Text='CREAR BACKUP AHORA'; $nb.Location=New-Object Drawing.Point(15,15); $nb.Size=New-Object Drawing.Size(200,36); $nb.Add_Click({try{$b=Backup-World;Refresh-BackupsList;if($b){Show-Message "Backup creado:`n$b"}}catch{Show-Message $_.Exception.Message 'Backup' 'Error'}}); $tabBackups.Controls.Add($nb)
-$ob=New-Object Windows.Forms.Button; $ob.Text='ABRIR CARPETA'; $ob.Location=New-Object Drawing.Point(230,15); $ob.Size=New-Object Drawing.Size(160,36); $ob.Add_Click({try{New-Item -ItemType Directory -Force -Path $BackupDir|Out-Null;Start-Process explorer.exe $BackupDir}catch{Show-Message ("No se pudo abrir la carpeta de backups:`n"+$_.Exception.Message) 'Backups' 'Error'}}); $tabBackups.Controls.Add($ob)
-$listBackups=New-Object Windows.Forms.ListView; $listBackups.Location=New-Object Drawing.Point(15,65); $listBackups.Size=New-Object Drawing.Size(1010,695); $listBackups.View='Details'; $listBackups.FullRowSelect=$true; $listBackups.GridLines=$true; [void]$listBackups.Columns.Add('Archivo',570); [void]$listBackups.Columns.Add('Fecha',230); [void]$listBackups.Columns.Add('Tamaño',150); $tabBackups.Controls.Add($listBackups)
-$btnRestoreBackup=New-Object Windows.Forms.Button; $btnRestoreBackup.Text='RESTAURAR SELECCIONADO'; $btnRestoreBackup.Location=New-Object Drawing.Point(580,15); $btnRestoreBackup.Size=New-Object Drawing.Size(210,36); $btnRestoreBackup.Add_Click({Restore-SelectedBackup}); $tabBackups.Controls.Add($btnRestoreBackup)
-$btnDeleteBackup=New-Object Windows.Forms.Button; $btnDeleteBackup.Text='ELIMINAR SELECCIONADO'; $btnDeleteBackup.Location=New-Object Drawing.Point(805,15); $btnDeleteBackup.Size=New-Object Drawing.Size(200,36); $btnDeleteBackup.Add_Click({Delete-SelectedBackup}); $tabBackups.Controls.Add($btnDeleteBackup)
+$nb=New-Object Windows.Forms.Button; $nb.Text=(T 'backups.btn_create'); $nb.Location=New-Object Drawing.Point(15,15); $nb.Size=New-Object Drawing.Size(200,36); $nb.Add_Click({try{$b=Backup-World;Refresh-BackupsList;if($b){Show-Message (T 'backups.created' @($b))}}catch{Show-Message $_.Exception.Message (T 'backups.title') 'Error'}}); $tabBackups.Controls.Add($nb)
+$ob=New-Object Windows.Forms.Button; $ob.Text=(T 'backups.btn_open'); $ob.Location=New-Object Drawing.Point(230,15); $ob.Size=New-Object Drawing.Size(160,36); $ob.Add_Click({try{New-Item -ItemType Directory -Force -Path $BackupDir|Out-Null;Start-Process explorer.exe $BackupDir}catch{Show-Message (T 'backups.folder_error' @($_.Exception.Message)) (T 'backups.title') 'Error'}}); $tabBackups.Controls.Add($ob)
+$listBackups=New-Object Windows.Forms.ListView; $listBackups.Location=New-Object Drawing.Point(15,65); $listBackups.Size=New-Object Drawing.Size(1010,695); $listBackups.View='Details'; $listBackups.FullRowSelect=$true; $listBackups.GridLines=$true; [void]$listBackups.Columns.Add((T 'backups.col_file'),570); [void]$listBackups.Columns.Add((T 'backups.col_date'),230); [void]$listBackups.Columns.Add((T 'backups.col_size'),150); $tabBackups.Controls.Add($listBackups)
+$btnRestoreBackup=New-Object Windows.Forms.Button; $btnRestoreBackup.Text=(T 'backups.btn_restore'); $btnRestoreBackup.Location=New-Object Drawing.Point(580,15); $btnRestoreBackup.Size=New-Object Drawing.Size(210,36); $btnRestoreBackup.Add_Click({Restore-SelectedBackup}); $tabBackups.Controls.Add($btnRestoreBackup)
+$btnDeleteBackup=New-Object Windows.Forms.Button; $btnDeleteBackup.Text=(T 'backups.btn_delete'); $btnDeleteBackup.Location=New-Object Drawing.Point(805,15); $btnDeleteBackup.Size=New-Object Drawing.Size(200,36); $btnDeleteBackup.Add_Click({Delete-SelectedBackup}); $tabBackups.Controls.Add($btnDeleteBackup)
 
 
 # Automatizaciones
-$autoGroup=New-Object Windows.Forms.GroupBox; $autoGroup.Text='Mensajes automáticos'; $autoGroup.Location=New-Object Drawing.Point(15,15); $autoGroup.Size=New-Object Drawing.Size(1015,230); $tabAutomation.Controls.Add($autoGroup)
-$chkAutoMessages=New-Object Windows.Forms.CheckBox; $chkAutoMessages.Text='Activar mensajes automáticos'; $chkAutoMessages.Location=New-Object Drawing.Point(20,30); $chkAutoMessages.AutoSize=$true; $autoGroup.Controls.Add($chkAutoMessages)
-$lblInterval=New-Object Windows.Forms.Label; $lblInterval.Text='Cada'; $lblInterval.Location=New-Object Drawing.Point(260,32); $lblInterval.AutoSize=$true; $autoGroup.Controls.Add($lblInterval)
+$autoGroup=New-Object Windows.Forms.GroupBox; $autoGroup.Text=(T 'auto.group'); $autoGroup.Location=New-Object Drawing.Point(15,15); $autoGroup.Size=New-Object Drawing.Size(1015,230); $tabAutomation.Controls.Add($autoGroup)
+$chkAutoMessages=New-Object Windows.Forms.CheckBox; $chkAutoMessages.Text=(T 'auto.enable'); $chkAutoMessages.Location=New-Object Drawing.Point(20,30); $chkAutoMessages.AutoSize=$true; $autoGroup.Controls.Add($chkAutoMessages)
+$lblInterval=New-Object Windows.Forms.Label; $lblInterval.Text=(T 'auto.every'); $lblInterval.Location=New-Object Drawing.Point(260,32); $lblInterval.AutoSize=$true; $autoGroup.Controls.Add($lblInterval)
 $numMessageInterval=New-Object Windows.Forms.NumericUpDown; $numMessageInterval.Location=New-Object Drawing.Point(305,28); $numMessageInterval.Minimum=1; $numMessageInterval.Maximum=1440; $numMessageInterval.Value=30; $autoGroup.Controls.Add($numMessageInterval)
-$lblMinutes=New-Object Windows.Forms.Label; $lblMinutes.Text='minutos'; $lblMinutes.Location=New-Object Drawing.Point(430,32); $lblMinutes.AutoSize=$true; $autoGroup.Controls.Add($lblMinutes)
-$chkIncludeTips=New-Object Windows.Forms.CheckBox; $chkIncludeTips.Text='Consejos de Palworld'; $chkIncludeTips.Location=New-Object Drawing.Point(20,70); $chkIncludeTips.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeTips)
-$chkIncludeCustom=New-Object Windows.Forms.CheckBox; $chkIncludeCustom.Text='Mensajes personalizados'; $chkIncludeCustom.Location=New-Object Drawing.Point(220,70); $chkIncludeCustom.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeCustom)
-$chkIncludeTime=New-Object Windows.Forms.CheckBox; $chkIncludeTime.Text='Agregar hora actual'; $chkIncludeTime.Location=New-Object Drawing.Point(440,70); $chkIncludeTime.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeTime)
-$lblPrefix=New-Object Windows.Forms.Label; $lblPrefix.Text='Prefijo'; $lblPrefix.Location=New-Object Drawing.Point(20,110); $lblPrefix.AutoSize=$true; $autoGroup.Controls.Add($lblPrefix)
+$lblMinutes=New-Object Windows.Forms.Label; $lblMinutes.Text=(T 'auto.minutes'); $lblMinutes.Location=New-Object Drawing.Point(430,32); $lblMinutes.AutoSize=$true; $autoGroup.Controls.Add($lblMinutes)
+$chkIncludeTips=New-Object Windows.Forms.CheckBox; $chkIncludeTips.Text=(T 'auto.tips'); $chkIncludeTips.Location=New-Object Drawing.Point(20,70); $chkIncludeTips.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeTips)
+$chkIncludeCustom=New-Object Windows.Forms.CheckBox; $chkIncludeCustom.Text=(T 'auto.custom'); $chkIncludeCustom.Location=New-Object Drawing.Point(220,70); $chkIncludeCustom.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeCustom)
+$chkIncludeTime=New-Object Windows.Forms.CheckBox; $chkIncludeTime.Text=(T 'auto.add_time'); $chkIncludeTime.Location=New-Object Drawing.Point(440,70); $chkIncludeTime.AutoSize=$true; $autoGroup.Controls.Add($chkIncludeTime)
+$lblPrefix=New-Object Windows.Forms.Label; $lblPrefix.Text=(T 'auto.prefix'); $lblPrefix.Location=New-Object Drawing.Point(20,110); $lblPrefix.AutoSize=$true; $autoGroup.Controls.Add($lblPrefix)
 $txtMessagePrefix=New-Object Windows.Forms.TextBox; $txtMessagePrefix.Location=New-Object Drawing.Point(90,106); $txtMessagePrefix.Size=New-Object Drawing.Size(180,25); $autoGroup.Controls.Add($txtMessagePrefix)
-$btnTestAuto=New-Object Windows.Forms.Button; $btnTestAuto.Text='ENVIAR PRUEBA'; $btnTestAuto.Location=New-Object Drawing.Point(300,102); $btnTestAuto.Size=New-Object Drawing.Size(150,34); $btnTestAuto.Add_Click({Send-AutomaticMessage -ManualTest $true}); $autoGroup.Controls.Add($btnTestAuto)
-$btnEditTips=New-Object Windows.Forms.Button; $btnEditTips.Text='EDITAR CONSEJOS'; $btnEditTips.Location=New-Object Drawing.Point(465,102); $btnEditTips.Size=New-Object Drawing.Size(160,34); $btnEditTips.Add_Click({Ensure-AutomationFiles;Start-Process notepad.exe $TipsFile}); $autoGroup.Controls.Add($btnEditTips)
-$btnEditCustom=New-Object Windows.Forms.Button; $btnEditCustom.Text='EDITAR PERSONALIZADOS'; $btnEditCustom.Location=New-Object Drawing.Point(640,102); $btnEditCustom.Size=New-Object Drawing.Size(200,34); $btnEditCustom.Add_Click({Ensure-AutomationFiles;Start-Process notepad.exe $CustomMessagesFile}); $autoGroup.Controls.Add($btnEditCustom)
-$lblAutomationStatus=New-Object Windows.Forms.Label; $lblAutomationStatus.Text='Automatizaciones listas.'; $lblAutomationStatus.Location=New-Object Drawing.Point(20,165); $lblAutomationStatus.Size=New-Object Drawing.Size(950,45); $autoGroup.Controls.Add($lblAutomationStatus)
+$btnTestAuto=New-Object Windows.Forms.Button; $btnTestAuto.Text=(T 'auto.btn_test'); $btnTestAuto.Location=New-Object Drawing.Point(300,102); $btnTestAuto.Size=New-Object Drawing.Size(150,34); $btnTestAuto.Add_Click({Send-AutomaticMessage -ManualTest $true}); $autoGroup.Controls.Add($btnTestAuto)
+$btnEditTips=New-Object Windows.Forms.Button; $btnEditTips.Text=(T 'auto.btn_edit_tips'); $btnEditTips.Location=New-Object Drawing.Point(465,102); $btnEditTips.Size=New-Object Drawing.Size(160,34); $btnEditTips.Add_Click({Ensure-AutomationFiles;Start-Process notepad.exe $TipsFile}); $autoGroup.Controls.Add($btnEditTips)
+$btnEditCustom=New-Object Windows.Forms.Button; $btnEditCustom.Text=(T 'auto.btn_edit_custom'); $btnEditCustom.Location=New-Object Drawing.Point(640,102); $btnEditCustom.Size=New-Object Drawing.Size(200,34); $btnEditCustom.Add_Click({Ensure-AutomationFiles;Start-Process notepad.exe $CustomMessagesFile}); $autoGroup.Controls.Add($btnEditCustom)
+$lblAutomationStatus=New-Object Windows.Forms.Label; $lblAutomationStatus.Text=(T 'auto.ready'); $lblAutomationStatus.Location=New-Object Drawing.Point(20,165); $lblAutomationStatus.Size=New-Object Drawing.Size(950,45); $autoGroup.Controls.Add($lblAutomationStatus)
 
-$geminiGroup=New-Object Windows.Forms.GroupBox; $geminiGroup.Text='Generación opcional de consejos con Gemini'; $geminiGroup.Location=New-Object Drawing.Point(15,260); $geminiGroup.Size=New-Object Drawing.Size(1015,140); $tabAutomation.Controls.Add($geminiGroup)
-$lblGeminiKey=New-Object Windows.Forms.Label; $lblGeminiKey.Text='API key'; $lblGeminiKey.Location=New-Object Drawing.Point(20,35); $lblGeminiKey.AutoSize=$true; $geminiGroup.Controls.Add($lblGeminiKey)
+$geminiGroup=New-Object Windows.Forms.GroupBox; $geminiGroup.Text=(T 'gemini.group'); $geminiGroup.Location=New-Object Drawing.Point(15,260); $geminiGroup.Size=New-Object Drawing.Size(1015,140); $tabAutomation.Controls.Add($geminiGroup)
+$lblGeminiKey=New-Object Windows.Forms.Label; $lblGeminiKey.Text=(T 'gemini.api_key'); $lblGeminiKey.Location=New-Object Drawing.Point(20,35); $lblGeminiKey.AutoSize=$true; $geminiGroup.Controls.Add($lblGeminiKey)
 $txtGeminiKey=New-Object Windows.Forms.TextBox; $txtGeminiKey.Location=New-Object Drawing.Point(90,31); $txtGeminiKey.Size=New-Object Drawing.Size(420,25); $txtGeminiKey.UseSystemPasswordChar=$true; $geminiGroup.Controls.Add($txtGeminiKey)
-$lblGeminiModel=New-Object Windows.Forms.Label; $lblGeminiModel.Text='Modelo'; $lblGeminiModel.Location=New-Object Drawing.Point(535,35); $lblGeminiModel.AutoSize=$true; $geminiGroup.Controls.Add($lblGeminiModel)
+$lblGeminiModel=New-Object Windows.Forms.Label; $lblGeminiModel.Text=(T 'gemini.model'); $lblGeminiModel.Location=New-Object Drawing.Point(535,35); $lblGeminiModel.AutoSize=$true; $geminiGroup.Controls.Add($lblGeminiModel)
 $txtGeminiModel=New-Object Windows.Forms.TextBox; $txtGeminiModel.Location=New-Object Drawing.Point(600,31); $txtGeminiModel.Size=New-Object Drawing.Size(210,25); $geminiGroup.Controls.Add($txtGeminiModel)
-$btnGenerateTips=New-Object Windows.Forms.Button; $btnGenerateTips.Text='GENERAR 40 CONSEJOS'; $btnGenerateTips.Location=New-Object Drawing.Point(825,27); $btnGenerateTips.Size=New-Object Drawing.Size(170,34); $btnGenerateTips.Add_Click({Generate-GeminiTips}); $geminiGroup.Controls.Add($btnGenerateTips)
-$lblGeminiNote=New-Object Windows.Forms.Label; $lblGeminiNote.Text='La clave se protege con Windows para el usuario actual. La IA solo se usa al presionar Generar.'; $lblGeminiNote.Location=New-Object Drawing.Point(20,85); $lblGeminiNote.Size=New-Object Drawing.Size(950,30); $geminiGroup.Controls.Add($lblGeminiNote)
+$btnGenerateTips=New-Object Windows.Forms.Button; $btnGenerateTips.Text=(T 'gemini.btn_generate'); $btnGenerateTips.Location=New-Object Drawing.Point(825,27); $btnGenerateTips.Size=New-Object Drawing.Size(170,34); $btnGenerateTips.Add_Click({Generate-GeminiTips}); $geminiGroup.Controls.Add($btnGenerateTips)
+$lblGeminiNote=New-Object Windows.Forms.Label; $lblGeminiNote.Text=(T 'gemini.note'); $lblGeminiNote.Location=New-Object Drawing.Point(20,85); $lblGeminiNote.Size=New-Object Drawing.Size(950,45); $geminiGroup.Controls.Add($lblGeminiNote)
 
-$smartGroup=New-Object Windows.Forms.GroupBox; $smartGroup.Text='Reinicios inteligentes y backups'; $smartGroup.Location=New-Object Drawing.Point(15,415); $smartGroup.Size=New-Object Drawing.Size(1015,160); $tabAutomation.Controls.Add($smartGroup)
-$chkRestartOnlyEmpty=New-Object Windows.Forms.CheckBox; $chkRestartOnlyEmpty.Text='Reiniciar automáticamente solo cuando no haya jugadores'; $chkRestartOnlyEmpty.Location=New-Object Drawing.Point(20,32); $chkRestartOnlyEmpty.AutoSize=$true; $smartGroup.Controls.Add($chkRestartOnlyEmpty)
-$chkRestartLowFps=New-Object Windows.Forms.CheckBox; $chkRestartLowFps.Text='Reiniciar por FPS bajos'; $chkRestartLowFps.Location=New-Object Drawing.Point(20,70); $chkRestartLowFps.AutoSize=$true; $smartGroup.Controls.Add($chkRestartLowFps)
-$lblLowFps=New-Object Windows.Forms.Label; $lblLowFps.Text='Menos de'; $lblLowFps.Location=New-Object Drawing.Point(230,73); $lblLowFps.AutoSize=$true; $smartGroup.Controls.Add($lblLowFps)
+$smartGroup=New-Object Windows.Forms.GroupBox; $smartGroup.Text=(T 'smart.group'); $smartGroup.Location=New-Object Drawing.Point(15,415); $smartGroup.Size=New-Object Drawing.Size(1015,160); $tabAutomation.Controls.Add($smartGroup)
+$chkRestartOnlyEmpty=New-Object Windows.Forms.CheckBox; $chkRestartOnlyEmpty.Text=(T 'smart.only_empty'); $chkRestartOnlyEmpty.Location=New-Object Drawing.Point(20,32); $chkRestartOnlyEmpty.AutoSize=$true; $smartGroup.Controls.Add($chkRestartOnlyEmpty)
+$chkRestartLowFps=New-Object Windows.Forms.CheckBox; $chkRestartLowFps.Text=(T 'smart.low_fps'); $chkRestartLowFps.Location=New-Object Drawing.Point(20,70); $chkRestartLowFps.AutoSize=$true; $smartGroup.Controls.Add($chkRestartLowFps)
+$lblLowFps=New-Object Windows.Forms.Label; $lblLowFps.Text=(T 'smart.less_than'); $lblLowFps.Location=New-Object Drawing.Point(230,73); $lblLowFps.AutoSize=$true; $smartGroup.Controls.Add($lblLowFps)
 $numLowFps=New-Object Windows.Forms.NumericUpDown; $numLowFps.Location=New-Object Drawing.Point(300,69); $numLowFps.Minimum=5; $numLowFps.Maximum=60; $numLowFps.Value=25; $smartGroup.Controls.Add($numLowFps)
-$lblDuring=New-Object Windows.Forms.Label; $lblDuring.Text='FPS durante'; $lblDuring.Location=New-Object Drawing.Point(430,73); $lblDuring.AutoSize=$true; $smartGroup.Controls.Add($lblDuring)
+$lblDuring=New-Object Windows.Forms.Label; $lblDuring.Text=(T 'smart.fps_during'); $lblDuring.Location=New-Object Drawing.Point(430,73); $lblDuring.AutoSize=$true; $smartGroup.Controls.Add($lblDuring)
 $numLowFpsMinutes=New-Object Windows.Forms.NumericUpDown; $numLowFpsMinutes.Location=New-Object Drawing.Point(520,69); $numLowFpsMinutes.Minimum=1; $numLowFpsMinutes.Maximum=120; $numLowFpsMinutes.Value=10; $smartGroup.Controls.Add($numLowFpsMinutes)
-$lblLowMinutes=New-Object Windows.Forms.Label; $lblLowMinutes.Text='minutos'; $lblLowMinutes.Location=New-Object Drawing.Point(650,73); $lblLowMinutes.AutoSize=$true; $smartGroup.Controls.Add($lblLowMinutes)
-$lblRetention=New-Object Windows.Forms.Label; $lblRetention.Text='Conservar últimos'; $lblRetention.Location=New-Object Drawing.Point(20,112); $lblRetention.AutoSize=$true; $smartGroup.Controls.Add($lblRetention)
+$lblLowMinutes=New-Object Windows.Forms.Label; $lblLowMinutes.Text=(T 'smart.minutes'); $lblLowMinutes.Location=New-Object Drawing.Point(650,73); $lblLowMinutes.AutoSize=$true; $smartGroup.Controls.Add($lblLowMinutes)
+$lblRetention=New-Object Windows.Forms.Label; $lblRetention.Text=(T 'smart.keep_last'); $lblRetention.Location=New-Object Drawing.Point(20,112); $lblRetention.AutoSize=$true; $smartGroup.Controls.Add($lblRetention)
 $numBackupRetention=New-Object Windows.Forms.NumericUpDown; $numBackupRetention.Location=New-Object Drawing.Point(140,108); $numBackupRetention.Minimum=1; $numBackupRetention.Maximum=500; $numBackupRetention.Value=20; $smartGroup.Controls.Add($numBackupRetention)
-$lblRetentionSuffix=New-Object Windows.Forms.Label; $lblRetentionSuffix.Text='backups'; $lblRetentionSuffix.Location=New-Object Drawing.Point(270,112); $lblRetentionSuffix.AutoSize=$true; $smartGroup.Controls.Add($lblRetentionSuffix)
-$chkJoinLeave=New-Object Windows.Forms.CheckBox; $chkJoinLeave.Text='Registrar entradas y salidas en actividad'; $chkJoinLeave.Location=New-Object Drawing.Point(390,110); $chkJoinLeave.AutoSize=$true; $smartGroup.Controls.Add($chkJoinLeave)
-$btnSaveAutomation=New-Object Windows.Forms.Button; $btnSaveAutomation.Text='GUARDAR AUTOMATIZACIONES'; $btnSaveAutomation.Location=New-Object Drawing.Point(760,103); $btnSaveAutomation.Size=New-Object Drawing.Size(235,38); $btnSaveAutomation.Add_Click({Save-AutomationSettings}); $smartGroup.Controls.Add($btnSaveAutomation)
+$lblRetentionSuffix=New-Object Windows.Forms.Label; $lblRetentionSuffix.Text=(T 'smart.backups'); $lblRetentionSuffix.Location=New-Object Drawing.Point(270,112); $lblRetentionSuffix.AutoSize=$true; $smartGroup.Controls.Add($lblRetentionSuffix)
+$chkJoinLeave=New-Object Windows.Forms.CheckBox; $chkJoinLeave.Text=(T 'smart.join_leave'); $chkJoinLeave.Location=New-Object Drawing.Point(390,110); $chkJoinLeave.AutoSize=$true; $smartGroup.Controls.Add($chkJoinLeave)
+$btnSaveAutomation=New-Object Windows.Forms.Button; $btnSaveAutomation.Text=(T 'smart.btn_save'); $btnSaveAutomation.Location=New-Object Drawing.Point(760,103); $btnSaveAutomation.Size=New-Object Drawing.Size(235,38); $btnSaveAutomation.Add_Click({Save-AutomationSettings}); $smartGroup.Controls.Add($btnSaveAutomation)
 
-$activityGroup=New-Object Windows.Forms.GroupBox; $activityGroup.Text='Registro de actividad'; $activityGroup.Location=New-Object Drawing.Point(15,590); $activityGroup.Size=New-Object Drawing.Size(1015,210); $tabAutomation.Controls.Add($activityGroup)
+$activityGroup=New-Object Windows.Forms.GroupBox; $activityGroup.Text=(T 'activity.group'); $activityGroup.Location=New-Object Drawing.Point(15,590); $activityGroup.Size=New-Object Drawing.Size(1015,210); $tabAutomation.Controls.Add($activityGroup)
 $rtbActivity=New-Object Windows.Forms.RichTextBox; $rtbActivity.Location=New-Object Drawing.Point(15,28); $rtbActivity.Size=New-Object Drawing.Size(980,140); $rtbActivity.ReadOnly=$true; $rtbActivity.Font=New-Object Drawing.Font('Consolas',9); $activityGroup.Controls.Add($rtbActivity)
-$btnOpenActivity=New-Object Windows.Forms.Button; $btnOpenActivity.Text='ABRIR REGISTRO'; $btnOpenActivity.Location=New-Object Drawing.Point(15,172); $btnOpenActivity.Size=New-Object Drawing.Size(160,30); $btnOpenActivity.Add_Click({if(-not(Test-Path $ActivityLogFile)){New-Item -ItemType File -Path $ActivityLogFile -Force|Out-Null};Start-Process notepad.exe $ActivityLogFile}); $activityGroup.Controls.Add($btnOpenActivity)
+$btnOpenActivity=New-Object Windows.Forms.Button; $btnOpenActivity.Text=(T 'activity.btn_open'); $btnOpenActivity.Location=New-Object Drawing.Point(15,172); $btnOpenActivity.Size=New-Object Drawing.Size(160,30); $btnOpenActivity.Add_Click({if(-not(Test-Path $ActivityLogFile)){New-Item -ItemType File -Path $ActivityLogFile -Force|Out-Null};Start-Process notepad.exe $ActivityLogFile}); $activityGroup.Controls.Add($btnOpenActivity)
+
+# ============ Pestaña Acerca de (bienvenida, version, idiomas, donacion) ============
+$aboutTitle = New-Object Windows.Forms.Label
+$aboutTitle.Text = $ProductInfo.product
+$aboutTitle.Font = New-Object Drawing.Font("Segoe UI", 16, [Drawing.FontStyle]::Bold)
+$aboutTitle.AutoSize = $true
+$aboutTitle.Location = New-Object Drawing.Point(25, 20)
+$tabAbout.Controls.Add($aboutTitle)
+
+$aboutSubtitle = New-Object Windows.Forms.Label
+$aboutSubtitle.Text = T "about.subtitle"
+$aboutSubtitle.AutoSize = $true
+$aboutSubtitle.Location = New-Object Drawing.Point(27, 58)
+$tabAbout.Controls.Add($aboutSubtitle)
+
+$featuresGroup = New-Object Windows.Forms.GroupBox
+$featuresGroup.Text = T "about.features_title"
+$featuresGroup.Location = New-Object Drawing.Point(25, 95)
+$featuresGroup.Size = New-Object Drawing.Size(500, 215)
+$tabAbout.Controls.Add($featuresGroup)
+
+$featuresLabel = New-Object Windows.Forms.Label
+$featuresLabel.Text = T "about.features"
+$featuresLabel.Location = New-Object Drawing.Point(18, 28)
+$featuresLabel.Size = New-Object Drawing.Size(465, 175)
+$featuresGroup.Controls.Add($featuresLabel)
+
+$versionGroup = New-Object Windows.Forms.GroupBox
+$versionGroup.Text = T "about.version_title"
+$versionGroup.Location = New-Object Drawing.Point(545, 95)
+$versionGroup.Size = New-Object Drawing.Size(485, 215)
+$tabAbout.Controls.Add($versionGroup)
+
+$versionLabel = New-Object Windows.Forms.Label
+$versionLabel.Text = ($ProductInfo.publisher + "`n" + (T "about.version_info" @($ProductInfo.version, $ProductInfo.release_channel, $ProductInfo.build_date)) + "`n`n" + (T "about.license"))
+$versionLabel.Location = New-Object Drawing.Point(18, 28)
+$versionLabel.Size = New-Object Drawing.Size(450, 130)
+$versionGroup.Controls.Add($versionLabel)
+
+$btnGitHub = New-Object Windows.Forms.Button
+$btnGitHub.Text = T "about.btn_github"
+$btnGitHub.Location = New-Object Drawing.Point(18, 165)
+$btnGitHub.Size = New-Object Drawing.Size(180, 34)
+$btnGitHub.Add_Click({ if ($AppLinks.homepage_url) { Start-Process $AppLinks.homepage_url } })
+$versionGroup.Controls.Add($btnGitHub)
+
+$langGroup = New-Object Windows.Forms.GroupBox
+$langGroup.Text = T "about.language"
+$langGroup.Location = New-Object Drawing.Point(25, 330)
+$langGroup.Size = New-Object Drawing.Size(500, 140)
+$tabAbout.Controls.Add($langGroup)
+
+$script:LocaleCodes = @(Get-AvailableLocales -LocalesDir $LocalesDir)
+
+$cmbUILanguage = New-Object Windows.Forms.ComboBox
+$cmbUILanguage.Location = New-Object Drawing.Point(18, 30)
+$cmbUILanguage.Size = New-Object Drawing.Size(220, 25)
+$cmbUILanguage.DropDownStyle = "DropDownList"
+foreach ($code in $script:LocaleCodes) { [void]$cmbUILanguage.Items.Add((Get-LocaleDisplayName $code)) }
+$uiLangIndex = [array]::IndexOf($script:LocaleCodes, $script:UILanguage)
+if ($uiLangIndex -ge 0) { $cmbUILanguage.SelectedIndex = $uiLangIndex }
+$langGroup.Controls.Add($cmbUILanguage)
+
+$langRestartNote = New-Object Windows.Forms.Label
+$langRestartNote.Text = T "about.language_restart"
+$langRestartNote.AutoSize = $true
+$langRestartNote.Location = New-Object Drawing.Point(255, 34)
+$langGroup.Controls.Add($langRestartNote)
+
+$serverLangLabel = New-Object Windows.Forms.Label
+$serverLangLabel.Text = T "schedule.server_lang"
+$serverLangLabel.AutoSize = $true
+$serverLangLabel.Location = New-Object Drawing.Point(18, 72)
+$langGroup.Controls.Add($serverLangLabel)
+
+$cmbServerLanguage = New-Object Windows.Forms.ComboBox
+$cmbServerLanguage.Location = New-Object Drawing.Point(18, 95)
+$cmbServerLanguage.Size = New-Object Drawing.Size(220, 25)
+$cmbServerLanguage.DropDownStyle = "DropDownList"
+foreach ($code in $script:LocaleCodes) { [void]$cmbServerLanguage.Items.Add((Get-LocaleDisplayName $code)) }
+$serverLangIndex = [array]::IndexOf($script:LocaleCodes, $script:ServerLanguage)
+if ($serverLangIndex -ge 0) { $cmbServerLanguage.SelectedIndex = $serverLangIndex }
+$langGroup.Controls.Add($cmbServerLanguage)
+
+# Los handlers se agregan DESPUES de fijar la seleccion inicial (no disparan al construir)
+$cmbUILanguage.Add_SelectedIndexChanged({
+    if ($script:LoadingOptions) { return }
+    $index = $cmbUILanguage.SelectedIndex
+    if ($index -ge 0 -and $index -lt $script:LocaleCodes.Count) {
+        $script:UILanguage = $script:LocaleCodes[$index]
+        Save-LauncherOptions
+        Show-Message (T "about.language_restart")
+    }
+})
+
+$cmbServerLanguage.Add_SelectedIndexChanged({
+    if ($script:LoadingOptions) { return }
+    $index = $cmbServerLanguage.SelectedIndex
+    if ($index -ge 0 -and $index -lt $script:LocaleCodes.Count) {
+        $script:ServerLanguage = $script:LocaleCodes[$index]
+        # Los avisos in-game cambian de idioma al instante (no requiere reiniciar)
+        Initialize-I18n -LocalesDir $LocalesDir -UILanguage $script:UILanguage -ServerLanguage $script:ServerLanguage
+        Save-LauncherOptions
+    }
+})
+
+$donateGroup = New-Object Windows.Forms.GroupBox
+$donateGroup.Text = T "about.donate_title"
+$donateGroup.Location = New-Object Drawing.Point(545, 330)
+$donateGroup.Size = New-Object Drawing.Size(485, 140)
+$tabAbout.Controls.Add($donateGroup)
+
+$donateLabel = New-Object Windows.Forms.Label
+$donateLabel.Text = T "about.donate_text"
+$donateLabel.Location = New-Object Drawing.Point(18, 28)
+$donateLabel.Size = New-Object Drawing.Size(450, 55)
+$donateGroup.Controls.Add($donateLabel)
+
+$btnDonate = New-Object Windows.Forms.Button
+$btnDonate.Text = T "about.btn_donate"
+$btnDonate.Location = New-Object Drawing.Point(18, 90)
+$btnDonate.Size = New-Object Drawing.Size(160, 36)
+$btnDonate.Add_Click({ if ($AppLinks.donate_url) { Start-Process $AppLinks.donate_url } })
+$donateGroup.Controls.Add($btnDonate)
 
 $tabs.Add_SelectedIndexChanged({if($tabs.SelectedTab -eq $tabPlayers){Start-PlayersJob}elseif($tabs.SelectedTab -eq $tabBackups){Refresh-BackupsList}})
 
@@ -2469,14 +2594,14 @@ $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1000
 $timer.Add_Tick({
     try {
-        $lblClock.Text = "Hora: " + (Get-Date -Format "HH:mm:ss")
+        $lblClock.Text = T "panel.clock" @((Get-Date -Format "HH:mm:ss"))
         Update-AutomaticMessages
         Update-SmartRestart
         Update-Status
         Update-RestartSchedule
     }
     catch {
-        $lblAction.Text = "Error de actualización: " + $_.Exception.Message
+        $lblAction.Text = T "panel.tick_error" @($_.Exception.Message)
     }
 })
 $timer.Start()
@@ -2488,7 +2613,7 @@ $metricsTimer.Add_Tick({
         Start-MetricsWorker
     }
     catch {
-        $lblAction.Text = "Error al consultar métricas: " + $_.Exception.Message
+        $lblAction.Text = T "panel.metrics_error" @($_.Exception.Message)
     }
 })
 $metricsTimer.Start()

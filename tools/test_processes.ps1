@@ -12,7 +12,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$launcherFile = Join-Path $root "launcher\PalworldLauncher.ps1"
+$launcherFile = Join-Path $root "launcher\FirebrandPalworldLauncher.ps1"
 
 $script:passed = 0
 $script:failed = 0

@@ -63,7 +63,7 @@ try {
     Set-Content -Path (Join-Path $portableRoot "server\PalServer.exe") -Value "fake" -Encoding UTF8
 
     Write-Host "--- Ejecutando launcher en modo PORTABLE ($WaitSeconds s)..."
-    $proc = Start-LauncherSandbox (Join-Path $portableRoot "launcher\PalworldLauncher.ps1")
+    $proc = Start-LauncherSandbox (Join-Path $portableRoot "launcher\FirebrandPalworldLauncher.ps1")
     Start-Sleep -Seconds $WaitSeconds
     $stillRunning = -not $proc.HasExited
     Stop-LauncherSandbox $proc
@@ -90,7 +90,7 @@ try {
     $savedLocalAppData = $env:LOCALAPPDATA
     try {
         $env:LOCALAPPDATA = $fakeLocal
-        $proc2 = Start-LauncherSandbox (Join-Path $installRoot "launcher\PalworldLauncher.ps1")
+        $proc2 = Start-LauncherSandbox (Join-Path $installRoot "launcher\FirebrandPalworldLauncher.ps1")
         Start-Sleep -Seconds $WaitSeconds
     }
     finally {
