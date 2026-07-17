@@ -1261,11 +1261,22 @@ function Start-Server {
         New-Item -ItemType File -Path $CurrentServerLog -Force | Out-Null
         $script:LogPosition = 0L
         $script:ServerPid = $null
-        $commandLine = '""' + $ServerExe + '" ' + $arguments + ' >> "' + $CurrentServerLog + '" 2>&1"'
+        # Lanzar el binario de CONSOLA directamente: el wrapper PalServer.exe
+        # abre una consola propia para el hijo Shipping-Cmd y la redireccion
+        # no captura NADA (por eso los server_*.log quedaban en 0 bytes y la
+        # pestana Chat nunca veia el output real del server).
+        $exeToLaunch = $ServerExe
+        $workDir = $ServerDir
+        $shippingCmd = Join-Path $ServerDir "Pal\Binaries\Win64\PalServer-Win64-Shipping-Cmd.exe"
+        if (Test-Path -LiteralPath $shippingCmd) {
+            $exeToLaunch = $shippingCmd
+            $workDir = Split-Path -Parent $shippingCmd
+        }
+        $commandLine = '""' + $exeToLaunch + '" ' + $arguments + ' >> "' + $CurrentServerLog + '" 2>&1"'
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $env:ComSpec
         $psi.Arguments = "/d /s /c $commandLine"
-        $psi.WorkingDirectory = $ServerDir
+        $psi.WorkingDirectory = $workDir
         $psi.UseShellExecute = $true
         $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
         $proc = [System.Diagnostics.Process]::Start($psi)
@@ -1333,10 +1344,10 @@ function Stop-Server(
 
     # Barrida final SOLO sobre procesos de ESTA instalacion (por ruta del exe):
     # jamas se mata un PalServer de otra carpeta/instalacion de la misma PC.
-    Get-Process `
-        -Name "PalServer","PalServer-Win64-Test","PalServer-Win64-Shipping" `
-        -ErrorAction SilentlyContinue |
-        Where-Object { Test-OwnServerProcess $_ } |
+    # Patron PalServer* (no lista fija): el proceso real se llama
+    # PalServer-Win64-Shipping-Cmd y la lista vieja lo dejaba afuera.
+    Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessName -like "PalServer*" -and (Test-OwnServerProcess $_) } |
         Stop-Process -Force -ErrorAction SilentlyContinue
 
     $script:ServerPid = $null
@@ -1903,6 +1914,12 @@ function Read-NewServerLogLines {
                     try { $tm=([datetime]::Parse($tm)).ToString('HH:mm:ss') } catch {}
                     Append-ChatLine $tm $m.Groups['name'].Value $m.Groups['message'].Value
                 }
+                elseif ($line -match '\[CHAT\]' -and $line -ne $script:LastChatLineKey) {
+                    # Linea de chat con formato distinto al esperado: mostrarla
+                    # cruda igual (sirve para ajustar el parser con datos reales).
+                    $script:LastChatLineKey=$line
+                    Append-ChatLine (Get-Date -Format 'HH:mm:ss') 'CHAT' $line
+                }
             }
             $script:LogPosition=$fs.Position; $sr.Dispose()
         } finally { $fs.Dispose() }
@@ -2387,6 +2404,7 @@ $bottom=New-Object Windows.Forms.Panel; $bottom.Dock='Bottom'; $bottom.Height=75
 $txtChatMessage=New-Object Windows.Forms.TextBox; $txtChatMessage.Location=New-Object Drawing.Point(10,10); $txtChatMessage.Size=New-Object Drawing.Size(500,27); $bottom.Controls.Add($txtChatMessage)
 $send=New-Object Windows.Forms.Button; $send.Text='ENVIAR COMO SERVIDOR'; $send.Location=New-Object Drawing.Point(515,8); $send.Size=New-Object Drawing.Size(125,32); $send.Add_Click({Send-ServerChat}); $bottom.Controls.Add($send)
 $hist=New-Object Windows.Forms.Button; $hist.Text='ABRIR HISTORIAL'; $hist.Location=New-Object Drawing.Point(10,42); $hist.Size=New-Object Drawing.Size(150,28); $hist.Add_Click({if(-not(Test-Path $ChatHistoryFile)){New-Item -ItemType File -Path $ChatHistoryFile -Force|Out-Null};Start-Process notepad.exe $ChatHistoryFile}); $bottom.Controls.Add($hist)
+$chatNote=New-Object Windows.Forms.Label; $chatNote.Text='Nota: el server vanilla de Palworld no siempre publica el chat de los jugadores en su salida; si no aparece nada tras reiniciar desde el launcher, hace falta un mod de logging (UE4SS).'; $chatNote.Location=New-Object Drawing.Point(170,44); $chatNote.Size=New-Object Drawing.Size(660,28); $bottom.Controls.Add($chatNote)
 $txtChatMessage.Add_KeyDown({if($_.KeyCode -eq [Windows.Forms.Keys]::Enter){$_.SuppressKeyPress=$true;Send-ServerChat}})
 $rtbServerLog=New-Object Windows.Forms.RichTextBox; $rtbServerLog.Dock='Fill'; $rtbServerLog.ReadOnly=$true; $rtbServerLog.Font=New-Object Drawing.Font('Consolas',9); $rtbServerLog.BackColor=[Drawing.Color]::Black; $rtbServerLog.ForeColor=[Drawing.Color]::Gainsboro; $split.Panel2.Controls.Add($rtbServerLog)
 $lblPlayersStatus=New-Object Windows.Forms.Label; $lblPlayersStatus.Text='Esperando consulta...'; $lblPlayersStatus.Location=New-Object Drawing.Point(15,15); $lblPlayersStatus.AutoSize=$true; $tabPlayers.Controls.Add($lblPlayersStatus)
