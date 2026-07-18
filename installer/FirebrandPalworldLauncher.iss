@@ -53,6 +53,13 @@ Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 
 [CustomMessages]
+english.AutoStartTask=Start the launcher when Windows starts (if "start the server when the launcher opens" is enabled, the server starts too)
+spanish.AutoStartTask=Iniciar el launcher al iniciar Windows (si activaste "iniciar el servidor al abrir el launcher", el server también arranca)
+brazilianportuguese.AutoStartTask=Iniciar o launcher junto com o Windows (se "iniciar o servidor ao abrir o launcher" estiver ativo, o servidor também inicia)
+german.AutoStartTask=Launcher beim Windows-Start ausführen (wenn "Server beim Öffnen des Launchers starten" aktiv ist, startet auch der Server)
+japanese.AutoStartTask=Windows起動時にランチャーを起動する（「ランチャーを開いたらサーバーを起動」が有効なら、サーバーも起動します）
+french.AutoStartTask=Lancer le launcher au démarrage de Windows (si « démarrer le serveur à l'ouverture du launcher » est activé, le serveur démarre aussi)
+italian.AutoStartTask=Avvia il launcher all'avvio di Windows (se "avvia il server all'apertura del launcher" è attivo, parte anche il server)
 english.RemoveUserData=Do you also want to delete the launcher settings (language, options, logs)?%nYour Palworld SERVER, its worlds and backups will NOT be touched.
 spanish.RemoveUserData=¿Querés borrar también la configuración del launcher (idioma, opciones, logs)?%nTu SERVIDOR de Palworld, sus mundos y backups NO se tocan.
 brazilianportuguese.RemoveUserData=Quer excluir também as configurações do launcher (idioma, opções, logs)?%nSeu SERVIDOR de Palworld, seus mundos e backups NÃO serão tocados.
@@ -76,6 +83,11 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "autostart"; Description: "{cm:AutoStartTask}"; Flags: unchecked
+
+[Registry]
+; Autostart per-user (HKCU: sin permisos de admin). Se elimina al desinstalar.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FirebrandPalworldLauncher"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

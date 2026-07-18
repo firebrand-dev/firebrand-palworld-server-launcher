@@ -322,5 +322,8 @@
     "updater.starting_install": "The installer will open and the launcher will close.\n\nYour worlds, backups and settings are NOT touched.",
     "updater.git_confirm": "Run git pull in the launcher folder?\n\n{0}",
     "updater.git_done": "Git updated the launcher:\n\n{0}\n\nClose and reopen it to apply the changes.",
-    "updater.git_failed": "git pull failed:\n\n{0}"
+    "updater.git_failed": "git pull failed:\n\n{0}",
+    "schedule.waiting_empty": "Scheduled restart: waiting for the server to be empty ({0} online)...",
+    "chat.event_author": "EVENT",
+    "config.autostart_server": "Start server with the launcher"
 }

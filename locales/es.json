@@ -322,5 +322,8 @@
     "updater.starting_install": "Se va a abrir el instalador y el launcher se cierra.\n\nTus mundos, backups y configuración NO se tocan.",
     "updater.git_confirm": "¿Ejecutar git pull en la carpeta del launcher?\n\n{0}",
     "updater.git_done": "Git actualizó el launcher:\n\n{0}\n\nCerralo y volvé a abrirlo para aplicar los cambios.",
-    "updater.git_failed": "git pull falló:\n\n{0}"
+    "updater.git_failed": "git pull falló:\n\n{0}",
+    "schedule.waiting_empty": "Reinicio programado: esperando que no haya jugadores ({0} conectados)...",
+    "chat.event_author": "EVENTO",
+    "config.autostart_server": "Iniciar server con el launcher"
 }

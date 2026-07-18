@@ -322,5 +322,8 @@
     "updater.starting_install": "L'installer si aprirà e il launcher verrà chiuso.\n\nI tuoi mondi, backup e impostazioni NON verranno toccati.",
     "updater.git_confirm": "Eseguire git pull nella cartella del launcher?\n\n{0}",
     "updater.git_done": "Git ha aggiornato il launcher:\n\n{0}\n\nChiudilo e riaprilo per applicare le modifiche.",
-    "updater.git_failed": "git pull non è riuscito:\n\n{0}"
+    "updater.git_failed": "git pull non è riuscito:\n\n{0}",
+    "schedule.waiting_empty": "Riavvio pianificato: in attesa che il server sia vuoto ({0} online)...",
+    "chat.event_author": "EVENTO",
+    "config.autostart_server": "Avvia il server con il launcher"
 }

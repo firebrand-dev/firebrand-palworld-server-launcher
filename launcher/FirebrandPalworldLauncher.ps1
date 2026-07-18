@@ -1009,6 +1009,7 @@ function Save-LauncherOptions {
         AutoBackup = $chkAutoBackup.Checked
         WorkerThreads = [int]$numWorkers.Value
         UseLegacyPerformanceArgs = $chkLegacyPerfArgs.Checked
+        AutoStartServer = $chkAutoStartServer.Checked
         RestartMode = (Get-RestartModeKey)
         AutoRestartHours = [int]$numAutoRestart.Value
         DailyRestartTime = $timeValue
@@ -1032,6 +1033,7 @@ function Load-LauncherOptions {
     $chkAutoBackup.Checked = $true
     $numWorkers.Value = 4
     $chkLegacyPerfArgs.Checked = $false
+    $chkAutoStartServer.Checked = $false
     $cmbRestartMode.SelectedIndex = 0
     $numAutoRestart.Value = 12
     $timeRestart.Value = [datetime]::Today.AddHours(6)
@@ -1057,6 +1059,10 @@ function Load-LauncherOptions {
 
         if ($null -ne $config.UseLegacyPerformanceArgs) {
             $chkLegacyPerfArgs.Checked = [bool]$config.UseLegacyPerformanceArgs
+        }
+
+        if ($null -ne $config.AutoStartServer) {
+            $chkAutoStartServer.Checked = [bool]$config.AutoStartServer
         }
 
         if ($null -ne $config.AutoRestartHours) {
@@ -1691,6 +1697,20 @@ function Update-RestartSchedule {
     $remaining = $script:NextRestartAt - (Get-Date)
 
     if ($remaining.TotalSeconds -le 0) {
+        # "Solo cuando no haya jugadores" aplica TAMBIEN al reinicio
+        # programado (bug reportado: antes solo frenaba el reinicio por
+        # FPS). Si hay gente adentro, se espera y se reintenta cada tick.
+        # Sin metricas disponibles se asume 0 (igual que el smart restart).
+        $playersNow = 0
+        if ($script:LastMetrics) {
+            try { $playersNow = [int]$script:LastMetrics.currentplayernum } catch { $playersNow = 0 }
+        }
+        if ($chkRestartOnlyEmpty.Checked -and $playersNow -gt 0) {
+            $lblNextRestart.Text = T "schedule.waiting_empty" @($playersNow)
+            $btnCancelRestart.Enabled = $true
+            return
+        }
+
         $lblNextRestart.Text = T "schedule.in_progress"
         $btnCancelRestart.Enabled = $false
         Restart-Server -Automatic $true
@@ -1954,6 +1974,16 @@ function Read-NewServerLogLines {
                     # cruda igual (sirve para ajustar el parser con datos reales).
                     $script:LastChatLineKey=$line
                     Append-ChatLine (Get-Date -Format 'HH:mm:ss') (T 'chat.raw_author') $line
+                }
+                elseif ($line -match 'joined the server|left the server') {
+                    # El vanilla no publica el chat, pero SI las entradas y
+                    # salidas: a la pestana Chat y (opcional) a actividad.
+                    $evt=[regex]::Match($line,'^\[(?<date>[^\]]+)\]\s+\[LOG\]\s+(?<msg>.+)$')
+                    $evtMsg = if ($evt.Success) { $evt.Groups['msg'].Value } else { $line }
+                    $evtTime = Get-Date -Format 'HH:mm:ss'
+                    if ($evt.Success) { try { $evtTime=([datetime]::Parse($evt.Groups['date'].Value)).ToString('HH:mm:ss') } catch {} }
+                    Append-ChatLine $evtTime (T 'chat.event_author') $evtMsg
+                    if ($chkJoinLeave -and $chkJoinLeave.Checked) { Write-Activity $evtMsg }
                 }
             }
             $script:LogPosition=$fs.Position; $sr.Dispose()
@@ -2255,6 +2285,12 @@ $chkAutoBackup.Text = T "config.auto_backup"
 $chkAutoBackup.Location = New-Object Drawing.Point(490,320)
 $chkAutoBackup.AutoSize = $true
 $group.Controls.Add($chkAutoBackup)
+
+$chkAutoStartServer = New-Object Windows.Forms.CheckBox
+$chkAutoStartServer.Text = T "config.autostart_server"
+$chkAutoStartServer.Location = New-Object Drawing.Point(690,320)
+$chkAutoStartServer.AutoSize = $true
+$group.Controls.Add($chkAutoStartServer)
 
 $btnSave = New-Object Windows.Forms.Button
 $btnSave.Text = T "config.btn_save"
@@ -2715,6 +2751,13 @@ $form.Add_Shown({
         -not (Test-Path -LiteralPath (Join-Path $DataRoot "wizard-declined.flag"))
     ) {
         Show-FirstRunWizard
+    }
+
+    # Opcion "iniciar el servidor al abrir el launcher": combinada con el
+    # autostart del launcher en Windows (tarea del instalador), el server
+    # completo levanta solo al prender la PC.
+    if ($chkAutoStartServer.Checked -and (Test-Path -LiteralPath $ServerExe) -and -not (Get-ServerProcess)) {
+        Start-Server
     }
 })
 

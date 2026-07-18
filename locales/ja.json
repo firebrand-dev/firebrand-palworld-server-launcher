@@ -322,5 +322,8 @@
     "updater.starting_install": "インストーラーが開き、ランチャーは終了します。\n\nワールド、バックアップ、設定には一切触れません。",
     "updater.git_confirm": "ランチャーのフォルダーでgit pullを実行しますか？\n\n{0}",
     "updater.git_done": "Gitがランチャーを更新しました:\n\n{0}\n\n変更を適用するには、閉じてからもう一度開いてください。",
-    "updater.git_failed": "git pullに失敗しました:\n\n{0}"
+    "updater.git_failed": "git pullに失敗しました:\n\n{0}",
+    "schedule.waiting_empty": "予定された再起動: サーバーが空になるのを待っています（{0}人接続中）...",
+    "chat.event_author": "イベント",
+    "config.autostart_server": "ランチャーを開いたらサーバーを起動"
 }

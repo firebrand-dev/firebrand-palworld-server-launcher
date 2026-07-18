@@ -322,5 +322,8 @@
     "updater.starting_install": "Der Installer wird geöffnet und der Launcher geschlossen.\n\nDeine Welten, Backups und Einstellungen werden NICHT angetastet.",
     "updater.git_confirm": "git pull im Launcher-Ordner ausführen?\n\n{0}",
     "updater.git_done": "Git hat den Launcher aktualisiert:\n\n{0}\n\nSchließe ihn und öffne ihn erneut, um die Änderungen zu übernehmen.",
-    "updater.git_failed": "git pull ist fehlgeschlagen:\n\n{0}"
+    "updater.git_failed": "git pull ist fehlgeschlagen:\n\n{0}",
+    "schedule.waiting_empty": "Geplanter Neustart: warte, bis der Server leer ist ({0} online)...",
+    "chat.event_author": "EREIGNIS",
+    "config.autostart_server": "Server mit dem Launcher starten"
 }
