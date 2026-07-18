@@ -13,6 +13,8 @@ $files = @(
     (Join-Path $root "launcher\lib\Paths.ps1"),
     (Join-Path $root "launcher\lib\I18n.ps1"),
     (Join-Path $root "launcher\lib\Wizard.ps1"),
+    (Join-Path $root "launcher\lib\Updater.ps1"),
+    (Join-Path $root "tools\test_updater.ps1"),
     (Join-Path $root "scripts\Install-PalworldServer.ps1"),
     (Join-Path $root "tools\test_paths.ps1"),
     (Join-Path $root "tools\test_i18n.ps1"),

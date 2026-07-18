@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\Paths.ps1")
 . (Join-Path $PSScriptRoot "lib\I18n.ps1")
 . (Join-Path $PSScriptRoot "lib\Wizard.ps1")
+. (Join-Path $PSScriptRoot "lib\Updater.ps1")
 
 $script:LauncherScriptDir = $PSScriptRoot
 $LauncherPaths = Get-LauncherPaths -ScriptDir $PSScriptRoot
@@ -2626,6 +2627,35 @@ $btnDonate.Location = New-Object Drawing.Point(18, 90)
 $btnDonate.Size = New-Object Drawing.Size(160, 36)
 $btnDonate.Add_Click({ if ($AppLinks.donate_url) { Start-Process $AppLinks.donate_url } })
 $donateGroup.Controls.Add($btnDonate)
+
+$updateGroup = New-Object Windows.Forms.GroupBox
+$updateGroup.Text = T "updater.group"
+$updateGroup.Location = New-Object Drawing.Point(25, 490)
+$updateGroup.Size = New-Object Drawing.Size(1005, 100)
+$tabAbout.Controls.Add($updateGroup)
+
+$btnCheckUpdates = New-Object Windows.Forms.Button
+$btnCheckUpdates.Text = T "updater.btn_check"
+$btnCheckUpdates.Location = New-Object Drawing.Point(18, 32)
+$btnCheckUpdates.Size = New-Object Drawing.Size(250, 38)
+$btnCheckUpdates.Add_Click({ Invoke-LauncherUpdateCheck })
+$updateGroup.Controls.Add($btnCheckUpdates)
+
+# Solo para desarrolladores: aparece unicamente si el launcher corre
+# dentro de un repo git (el usuario final instalado nunca lo ve).
+$btnGitUpdate = New-Object Windows.Forms.Button
+$btnGitUpdate.Text = T "updater.btn_git"
+$btnGitUpdate.Location = New-Object Drawing.Point(285, 32)
+$btnGitUpdate.Size = New-Object Drawing.Size(250, 38)
+$btnGitUpdate.Visible = (Test-Path -LiteralPath (Join-Path $InstallRoot ".git"))
+$btnGitUpdate.Add_Click({ Invoke-GitUpdate })
+$updateGroup.Controls.Add($btnGitUpdate)
+
+$lblUpdateStatus = New-Object Windows.Forms.Label
+$lblUpdateStatus.Text = ""
+$lblUpdateStatus.AutoSize = $true
+$lblUpdateStatus.Location = New-Object Drawing.Point(555, 42)
+$updateGroup.Controls.Add($lblUpdateStatus)
 
 $tabs.Add_SelectedIndexChanged({if($tabs.SelectedTab -eq $tabPlayers){Start-PlayersJob}elseif($tabs.SelectedTab -eq $tabBackups){Refresh-BackupsList}})
 
